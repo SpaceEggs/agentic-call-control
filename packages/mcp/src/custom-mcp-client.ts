@@ -7,6 +7,7 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import chalk from 'chalk';
 import type { McpToolDefinition } from './mcp-client.ts';
 import { coerceToolArguments } from './tool-schema.ts';
@@ -35,6 +36,11 @@ function authHeaders(auth?: CustomMcpAuth): Record<string, string> {
     }
     return {};
 }
+
+// Tencent Docs currently declares manage.search_file.modify_time as an integer
+// but returns it as a string. Bypass only the SDK's per-tool outputSchema check
+// for this read-only search tool while retaining the generic result validation.
+const OUTPUT_SCHEMA_BYPASS_TOOLS = new Set(['manage.search_file']);
 
 export class CustomMcpConnection {
     private client: Client | null = null;
@@ -71,7 +77,12 @@ export class CustomMcpConnection {
 
     async callTool(name: string, args: Record<string, unknown>): Promise<string> {
         if (!this.client) throw new Error(`CustomMCP "${this.name}" not connected`);
-        const result = await this.client.callTool({ name, arguments: args });
+        const result = OUTPUT_SCHEMA_BYPASS_TOOLS.has(name)
+            ? await this.client.request(
+                { method: 'tools/call', params: { name, arguments: args } },
+                CallToolResultSchema,
+            )
+            : await this.client.callTool({ name, arguments: args });
         if (result.isError) {
             const errText = typeof result.content === 'string'
                 ? result.content
