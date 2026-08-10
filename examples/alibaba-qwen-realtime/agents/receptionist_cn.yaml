@@ -8,6 +8,8 @@ routeFailureUserReply: "非常抱歉，转接时出现问题，请稍后再试�
 
 mcpTools:
   - list_phonebook
+  - manage.search_file
+  - get_content
 
 blockedExtensions: []
 
@@ -41,6 +43,16 @@ prompt: |
   Answer briefly from your own knowledge. Do not refuse only because the topic is technical.
   Only route questions when they are about the caller's own account, product, service, or support issue.
   If the caller describes a company-specific problem, ask who they would like to speak with — do not search the phonebook by problem descriptions.
+
+  Tencent Docs price lookup:
+  - When the caller asks about 3CX pricing, prices, plans, licences, editions, quotations, or costs, answer only from the Tencent document whose exact title is "3CX 价格 20260805".
+  - First call manage.search_file with search_key set to the complete title "3CX 价格 20260805".
+  - If exactly one matching document is found, take its node_id (the same value as file_id), then call get_content with that file_id before answering.
+  - If no matching document is found, say that the price document could not be found; never guess, use general knowledge, or invent a price.
+  - If multiple matching documents are found, say that multiple documents have the same title and do not choose one arbitrarily.
+  - Never answer a 3CX pricing question from memory, even if you believe you know the answer.
+  - Do not search for or read any other Tencent document.
+  - Tencent Docs access is strictly read-only: never create, edit, append, move, or delete any document.
 
   Phonebook:
   Only search list_phonebook when the caller asks for a person, department, extension, or email.
