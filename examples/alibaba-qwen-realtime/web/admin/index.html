@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Alibaba Qwen 语音服务管理台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div><span class="brand">Qwen</span><h1>语音服务管理台</h1></div>
+    <span id="connection" class="pill">正在连接</span>
+  </header>
+  <nav aria-label="管理标签页">
+    <button class="tab active" data-tab="overview">概览</button>
+    <button class="tab" data-tab="logs">日志</button>
+    <button class="tab" data-tab="mcp">MCP</button>
+    <button class="tab" data-tab="certificates">证书</button>
+  </nav>
+  <main>
+    <section id="overview" class="panel active">
+      <h2>系统概览</h2>
+      <div id="overview-cards" class="cards"></div>
+      <div class="notice warning">此页面免登录并显示完整通话日志。请确保只能从受信公司内网访问。</div>
+    </section>
+    <section id="logs" class="panel">
+      <div class="section-title"><h2>日志</h2><button id="refresh-logs">刷新历史日志</button></div>
+      <div class="log-layout">
+        <aside><h3>通话日志</h3><div id="call-files" class="file-list"></div></aside>
+        <div><h3 id="log-title">实时运行日志</h3><pre id="log-content" class="terminal"></pre></div>
+      </div>
+    </section>
+    <section id="mcp" class="panel">
+      <div class="section-title"><div><h2>MCP 服务器</h2><p>端点地址和令牌保存后不会回显；留空表示保持原值。</p></div><button id="refresh-mcp">刷新</button></div>
+      <div id="mcp-list" class="stack"></div>
+    </section>
+    <section id="certificates" class="panel">
+      <h2>HTTPS 证书</h2>
+      <div id="certificate-card" class="card"></div>
+      <div class="actions">
+        <button id="cert-staging">测试签发</button>
+        <button id="cert-production" class="primary">正式签发</button>
+        <button id="cert-renew">立即续期</button>
+      </div>
+      <pre id="cert-output" class="terminal short"></pre>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

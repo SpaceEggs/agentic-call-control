@@ -7,7 +7,7 @@ import { createCallState } from '../agent/call-state.ts';
 import { buildLocalTools } from '../agent/local-tools.ts';
 import { createToolExecutor } from '../agent/tool-executor.ts';
 import { createCallLogger } from '../logging/call-logger.ts';
-import type { CustomMcpRouter, McpManager } from '@3cx-examples/mcp';
+import type { McpManager, McpRuntimeLease, McpRuntimeManager } from '@3cx-examples/mcp';
 import { createQwenRealtimeBridge } from '../providers/qwen-realtime.ts';
 import type { QwenBridgeHandle, QwenToolDef } from '../providers/qwen-realtime.ts';
 import { getCallLogger } from '@3cx-examples/logger';
@@ -25,15 +25,20 @@ export function createCallStore(
     profile: AgentProfile | null,
     mcpManager?: McpManager,
     mcpToolDefs?: McpToolDef[],
-    customMcpRouter?: CustomMcpRouter,
+    customMcpRuntime?: McpRuntimeManager,
 ) {
-    const participantState = new Map<number, { bridge: QwenBridgeHandle; fileLog: FileCallLogger }>();
+    const participantState = new Map<number, {
+        bridge: QwenBridgeHandle;
+        fileLog: FileCallLogger;
+        mcpLease?: McpRuntimeLease;
+    }>();
 
     const cleanup = (participantId: number) => {
         const st = participantState.get(participantId);
         if (!st) return;
         st.bridge.stop();
         st.fileLog.callEnd();
+        st.mcpLease?.release();
         participantState.delete(participantId);
         console.log(chalk.yellow(`[CallStore] bridge stopped for participant ${participantId}`));
     };
@@ -52,6 +57,8 @@ export function createCallStore(
         fileLog.callStart(callerName, callerNumber);
 
         const callState = createCallState(callerName, callerNumber);
+        const mcpLease = customMcpRuntime?.acquire();
+        const customMcpRouter = mcpLease?.router;
 
         const localToolDefs = buildLocalTools({
             callScreening: profile?.callScreening,
@@ -155,7 +162,7 @@ export function createCallStore(
             (name, argsJson) => toolExecutor.execute(name, argsJson),
         );
 
-        participantState.set(participant.id, { bridge, fileLog });
+        participantState.set(participant.id, { bridge, fileLog, mcpLease });
         console.log(chalk.green(`[CallStore] bridge started for participant ${participant.id}`));
     };
 
@@ -190,4 +197,7 @@ export function createCallStore(
     }
 
     console.log(chalk.cyan('[CallStore] initialized (Qwen Omni realtime)'));
+    return {
+        getActiveCallCount: () => participantState.size,
+    };
 }

@@ -24,6 +24,25 @@ export interface AppConfig {
    * See `@3cx-examples/mcp`. Omit or leave empty to use only 3CX MCP.
    */
   customMcpServers?: CustomMcpServerConfig[];
+  admin?: AdminConfig;
+}
+
+export interface AdminConfig {
+  enabled?: boolean;
+  host?: string;
+  port?: number;
+  /** Browser-visible HTTPS origin, for example https://qwen-admin.example.com:8443. */
+  publicBaseUrl: string;
+  stateFile?: string;
+  tls: {
+    domain: string;
+    email: string;
+    legoPath?: string;
+    legoVersion?: string;
+    dataDir?: string;
+    renewCheckHours?: number;
+    dnsResolvers?: string[];
+  };
 }
 
 import { readFileSync } from 'fs';

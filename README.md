@@ -64,6 +64,7 @@ yarn install
 ```bash
 yarn start:openai            # OpenAI Realtime API
 yarn start:alibaba-qwen      # Alibaba Qwen Omni Realtime
+yarn start:qwenalibaba       # Alibaba Qwen + HTTPS admin dashboard
 yarn start:xai               # xAI Grok Voice Agent
 yarn start:gemini            # Gemini Live realtime
 yarn start:web-dialer        # Browser dialer (no SIP registration)

@@ -7,9 +7,13 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import chalk from 'chalk';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
 import type { McpToolDefinition } from './mcp-client.ts';
 import { coerceToolArguments } from './tool-schema.ts';
 import { OAuthCallbackServer, PersistentOAuthProvider } from './oauth-provider.ts';
@@ -21,6 +25,8 @@ export type CustomMcpAuth =
         type: 'oauth';
         /** Local callback port used during first-time browser authorization. */
         callbackPort?: number;
+        /** Public HTTPS callback used by the admin dashboard. */
+        redirectUrl?: string;
         /** Token store path, relative to the process working directory. */
         tokenFile?: string;
         /** Open the authorization URL automatically on macOS. Defaults to true. */
@@ -28,11 +34,42 @@ export type CustomMcpAuth =
     };
 
 export interface CustomMcpServerConfig {
+    /** Stable runtime identifier. Generated from name when omitted. */
+    id?: string;
     name: string;
     url: string;
     auth?: CustomMcpAuth;
+    transport?: 'streamable-http' | 'mcp-remote';
+    mcpRemote?: {
+        configDir?: string;
+        transportStrategy?: 'http-first' | 'sse-first' | 'http-only' | 'sse-only';
+    };
+    healthCheck?: { tool: string; arguments?: Record<string, unknown> };
+    providerConsoleUrl?: string;
     /** Defaults to true when omitted. */
     enabled?: boolean;
+}
+
+export class McpAuthorizationRequiredError extends Error {
+    public readonly authorizationUrl: string;
+    public readonly state: string;
+
+    constructor(
+        authorizationUrl: string,
+        state: string,
+    ) {
+        super('MCP OAuth authorization is required');
+        this.name = 'McpAuthorizationRequiredError';
+        this.authorizationUrl = authorizationUrl;
+        this.state = state;
+    }
+}
+
+export class McpLocalAuthorizationRequiredError extends Error {
+    constructor() {
+        super('mcp-remote OAuth must be completed locally on the server before it can connect');
+        this.name = 'McpLocalAuthorizationRequiredError';
+    }
 }
 
 export interface CustomMcpToolDef {
@@ -55,24 +92,87 @@ const OUTPUT_SCHEMA_BYPASS_TOOLS = new Set(['manage.search_file']);
 
 export class CustomMcpConnection {
     private client: Client | null = null;
+    private oauthProvider: PersistentOAuthProvider | undefined;
+    private pendingAuthTransport: StreamableHTTPClientTransport | undefined;
+    private lastAuthorizationUrl: string | undefined;
+    private intentionalClose = false;
     private readonly cfg: CustomMcpServerConfig;
+    private readonly onUnexpectedClose?: (error: Error) => void;
     public readonly name: string;
     public tools: McpToolDefinition[] = [];
 
-    constructor(cfg: CustomMcpServerConfig) {
+    constructor(cfg: CustomMcpServerConfig, onUnexpectedClose?: (error: Error) => void) {
         this.cfg = cfg;
         this.name = cfg.name;
+        this.onUnexpectedClose = onUnexpectedClose;
     }
 
-    async connect(): Promise<void> {
+    private createOAuthProvider(onAuthorizationUrl?: (url: URL) => void): PersistentOAuthProvider | undefined {
+        if (this.cfg.auth?.type !== 'oauth') return undefined;
+        return new PersistentOAuthProvider({
+            serverName: (this.cfg.id ?? this.name).replace(/[^a-zA-Z0-9._-]/g, '_'),
+            callbackPort: this.cfg.auth.callbackPort,
+            redirectUrl: this.cfg.auth.redirectUrl,
+            tokenFile: this.cfg.auth.tokenFile,
+            openBrowser: this.cfg.auth.openBrowser,
+            onAuthorizationUrl,
+        });
+    }
+
+    private createRemoteTransport(): StdioClientTransport {
+        const require = createRequire(import.meta.url);
+        const proxyPath = require.resolve('mcp-remote/dist/proxy.js');
+        const args = [proxyPath, this.cfg.url];
+        const strategy = this.cfg.mcpRemote?.transportStrategy ?? 'http-first';
+        args.push('--transport', strategy, '--auth-timeout', '300');
+        const env: Record<string, string> = {
+            ...process.env as Record<string, string>,
+            MCP_REMOTE_CONFIG_DIR: this.remoteConfigDir(),
+        };
+        if (this.cfg.auth?.type === 'bearer') {
+            args.push('--header', 'Authorization:${MCP_AUTH_HEADER}');
+            env.MCP_AUTH_HEADER = `Bearer ${this.cfg.auth.token}`;
+        }
+        return new StdioClientTransport({ command: process.execPath, args, env, stderr: 'inherit' });
+    }
+
+    private remoteConfigDir(): string {
+        return resolve(
+            this.cfg.mcpRemote?.configDir
+                ?? `.mcp-remote/${(this.cfg.id ?? this.name).replace(/[^a-zA-Z0-9._-]/g, '_')}`,
+        );
+    }
+
+    private hasRemoteOAuthTokens(path = this.remoteConfigDir()): boolean {
+        if (!existsSync(path)) return false;
+        for (const entry of readdirSync(path, { withFileTypes: true })) {
+            const child = resolve(path, entry.name);
+            if (entry.isDirectory() && this.hasRemoteOAuthTokens(child)) return true;
+            if (entry.isFile() && entry.name === 'tokens.json') return true;
+        }
+        return false;
+    }
+
+    async connect(options: { deferOAuth?: boolean } = {}): Promise<void> {
+        this.intentionalClose = false;
+        if (this.cfg.transport === 'mcp-remote') {
+            if (this.cfg.auth?.type === 'oauth' && !this.hasRemoteOAuthTokens()) {
+                throw new McpLocalAuthorizationRequiredError();
+            }
+            this.client = new Client(
+                { name: 'agentic-call-control', version: '1.0.0' },
+                { capabilities: {} },
+            );
+            await this.client.connect(this.createRemoteTransport());
+            await this.loadTools();
+            return;
+        }
+
+        this.lastAuthorizationUrl = undefined;
         const oauth = this.cfg.auth?.type === 'oauth'
-            ? new PersistentOAuthProvider({
-                serverName: this.name.replace(/[^a-zA-Z0-9._-]/g, '_'),
-                callbackPort: this.cfg.auth.callbackPort,
-                tokenFile: this.cfg.auth.tokenFile,
-                openBrowser: this.cfg.auth.openBrowser,
-            })
+            ? this.createOAuthProvider((url) => { this.lastAuthorizationUrl = url.toString(); })
             : undefined;
+        this.oauthProvider = oauth;
         const createTransport = () => new StreamableHTTPClientTransport(
             new URL(this.cfg.url),
             {
@@ -87,6 +187,19 @@ export class CustomMcpConnection {
 
         let transport = createTransport();
         this.client = createClient();
+        const deferOAuth = options.deferOAuth === true || Boolean(this.cfg.auth?.type === 'oauth' && this.cfg.auth.redirectUrl);
+        if (oauth && deferOAuth) {
+            try {
+                await this.client.connect(transport);
+                await this.loadTools();
+                return;
+            } catch (error) {
+                if (!(error instanceof UnauthorizedError)) throw error;
+                this.pendingAuthTransport = transport;
+                if (!this.lastAuthorizationUrl) throw new Error('OAuth server did not provide an authorization URL');
+                throw new McpAuthorizationRequiredError(this.lastAuthorizationUrl, oauth.expectedState());
+            }
+        }
         if (oauth) {
             // Existing tokens (including refresh tokens) normally connect without
             // opening a callback port. Fall through to interactive auth only when
@@ -133,6 +246,48 @@ export class CustomMcpConnection {
         await this.loadTools();
     }
 
+    authorizationRequest(): { authorizationUrl: string; state: string } | undefined {
+        if (!this.lastAuthorizationUrl || !this.oauthProvider) return undefined;
+        return { authorizationUrl: this.lastAuthorizationUrl, state: this.oauthProvider.expectedState() };
+    }
+
+    async finishOAuth(code: string, state: string): Promise<void> {
+        if (!this.oauthProvider || !this.pendingAuthTransport) throw new Error('No OAuth authorization is pending');
+        if (state !== this.oauthProvider.expectedState()) throw new Error('Invalid OAuth state');
+        await this.pendingAuthTransport.finishAuth(code);
+        await this.client?.close?.().catch(() => undefined);
+        this.client = null;
+        this.pendingAuthTransport = undefined;
+        await this.connect({ deferOAuth: true });
+    }
+
+    async deauthorize(): Promise<{ revoked: boolean }> {
+        if (this.cfg.transport === 'mcp-remote') {
+            const path = this.remoteConfigDir();
+            if (path.length < 10 || path === resolve('/') || path === resolve('.')) {
+                throw new Error('Refusing to clear an unsafe mcp-remote cache path');
+            }
+            rmSync(path, { recursive: true, force: true });
+            this.disconnect();
+            return { revoked: false };
+        }
+        const oauth = this.oauthProvider ?? this.createOAuthProvider();
+        if (!oauth) return { revoked: false };
+        const revoked = await oauth.revokeTokens().catch(() => false);
+        oauth.clearAuthorization();
+        this.disconnect();
+        return { revoked };
+    }
+
+    async healthCheck(): Promise<string> {
+        if (!this.cfg.healthCheck) {
+            if (!this.client) throw new Error(`CustomMCP "${this.name}" not connected`);
+            const result = await this.client.listTools();
+            return `${result.tools.length} tools available`;
+        }
+        return this.callTool(this.cfg.healthCheck.tool, this.cfg.healthCheck.arguments ?? {});
+    }
+
     private async loadTools(): Promise<void> {
         if (!this.client) throw new Error(`CustomMCP "${this.name}" not connected`);
         const { tools } = await this.client.listTools();
@@ -143,6 +298,11 @@ export class CustomMcpConnection {
         }));
 
         console.log(chalk.green(`[CustomMCP] "${this.name}" connected — ${this.tools.length} tools`));
+        this.client.onclose = () => {
+            if (!this.intentionalClose) {
+                this.onUnexpectedClose?.(new Error(`CustomMCP "${this.name}" transport closed unexpectedly`));
+            }
+        };
     }
 
     async callTool(name: string, args: Record<string, unknown>): Promise<string> {
@@ -173,8 +333,10 @@ export class CustomMcpConnection {
     }
 
     disconnect(): void {
+        this.intentionalClose = true;
         void this.client?.close?.().catch(() => undefined);
         this.client = null;
+        this.pendingAuthTransport = undefined;
     }
 }
 
@@ -183,13 +345,18 @@ export class CustomMcpRouter {
     private readonly registry = new Map<string, CustomMcpConnection>();
     private readonly schemaByName = new Map<string, Record<string, unknown>>();
     private readonly connections: CustomMcpConnection[];
+    private readonly onCallResult?: (serverName: string, toolName: string, error?: Error) => void;
     /** All tools discovered from custom servers (before allowlist). */
     public readonly allToolDefs: CustomMcpToolDef[] = [];
     /** Tools exposed to the agent (after allowlist). */
     public readonly toolDefs: CustomMcpToolDef[] = [];
 
-    constructor(connections: CustomMcpConnection[]) {
+    constructor(
+        connections: CustomMcpConnection[],
+        onCallResult?: (serverName: string, toolName: string, error?: Error) => void,
+    ) {
         this.connections = connections;
+        this.onCallResult = onCallResult;
         for (const conn of connections) {
             for (const tool of conn.tools) {
                 if (this.registry.has(tool.name)) {
@@ -245,7 +412,15 @@ export class CustomMcpRouter {
         const conn = this.registry.get(toolName);
         if (!conn) return `Unknown custom MCP tool: ${toolName}`;
         const coerced = coerceToolArguments(args, this.schemaByName.get(toolName));
-        return conn.callTool(toolName, coerced);
+        try {
+            const result = await conn.callTool(toolName, coerced);
+            this.onCallResult?.(conn.name, toolName);
+            return result;
+        } catch (error) {
+            const normalized = error instanceof Error ? error : new Error(String(error));
+            this.onCallResult?.(conn.name, toolName, normalized);
+            throw normalized;
+        }
     }
 
     disconnectAll(): void {

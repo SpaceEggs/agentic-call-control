@@ -22,6 +22,8 @@ export type {
 export {
     CustomMcpConnection,
     CustomMcpRouter,
+    McpAuthorizationRequiredError,
+    McpLocalAuthorizationRequiredError,
     connectCustomMcpServers,
 } from './custom-mcp-client.ts';
 export type {
@@ -29,6 +31,13 @@ export type {
     CustomMcpServerConfig,
     CustomMcpToolDef,
 } from './custom-mcp-client.ts';
+
+export { McpRuntimeManager } from './mcp-runtime-manager.ts';
+export type {
+    McpRuntimeLease,
+    McpRuntimeStatus,
+    McpServerRuntimeState,
+} from './mcp-runtime-manager.ts';
 
 export { McpManager } from './mcp-manager.ts';
 export type { McpManagerConfig } from './mcp-manager.ts';

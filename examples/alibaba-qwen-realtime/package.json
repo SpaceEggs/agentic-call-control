@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "start": "tsx src/index.ts",
+    "cert:init": "tsx src/admin/cert-init.ts",
+    "test": "tsx --test src/admin/*.test.ts",
     "lint": "eslint src/"
   },
   "private": true,
@@ -14,7 +16,7 @@
     "@3cx-examples/mcp": "workspace:*",
     "@3cx/call-control-sdk": "^0.1.10",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^4.3.1",
     "mustache": "^4.2.0",
     "openai": "^6.33.0",
     "tsx": "^4.21.0",

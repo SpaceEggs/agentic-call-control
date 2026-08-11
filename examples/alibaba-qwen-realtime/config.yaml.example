@@ -22,15 +22,47 @@ initialGreeting: Thank you for calling. How can I help you today?
 speakOnRouteFailure: true
 routeFailureUserReply: I am having trouble completing that transfer. Please hold or call back in a moment.
 
+# === Intranet administration dashboard (HTTPS only) ===
+# Before the first start, install lego v5.0.4, set ALICLOUD_ACCESS_KEY_FILE and
+# ALICLOUD_SECRET_KEY_FILE to mode-0600 files, then run:
+#   yarn cert:init:qwenalibaba
+admin:
+  enabled: true
+  host: 0.0.0.0
+  port: 8443
+  publicBaseUrl: https://qwen-admin.example.com:8443
+  stateFile: data/admin-state.json
+  tls:
+    domain: qwen-admin.example.com
+    email: admin@example.com
+    legoPath: /usr/local/bin/lego
+    legoVersion: 5.0.4
+    dataDir: data/lego
+    renewCheckHours: 12
+    # dnsResolvers: [223.5.5.5:53, 1.1.1.1:53]
+
 customMcpServers:
-   # OAuth MCP server (opens the browser on first connection)
-   - name: ZohoCRM
+   # OAuth MCP server (authorization is initiated from the admin dashboard)
+   - id: zoho-crm
+     name: ZohoCRM
      url: https://your-server.zohomcp.com/mcp/your-id/message
+     transport: streamable-http
      auth:
        type: oauth
-       callbackPort: 8090
-       tokenFile: .mcp-oauth/zoho-crm.json
+     providerConsoleUrl: https://mcp.zoho.com/mcp-client#/mcp-client/server
+     healthCheck:
+       tool: ZohoCRM_getOrganization
+       arguments: {}
      enabled: true
+
+   # Optional experimental stdio compatibility bridge. OAuth for this mode must
+   # be completed locally on the server; use streamable-http for dashboard OAuth.
+   # - id: legacy-remote
+   #   name: LegacyRemote
+   #   url: https://mcp.example.com/mcp
+   #   transport: mcp-remote
+   #   auth: { type: none }
+   #   enabled: true
 
    # Remote MCP server (bearer auth)
    - name: GoogleCalendar

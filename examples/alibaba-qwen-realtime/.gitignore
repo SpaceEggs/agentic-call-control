@@ -1,6 +1,8 @@
 config.yaml
 config.qwen.yaml
 .mcp-oauth/
+/data/
+/logs/
 node_modules
 dist
 /.yarn/install-state.gz

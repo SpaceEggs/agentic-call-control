@@ -1,11 +1,17 @@
 import chalk from 'chalk';
 import { CallControlClient } from '@3cx/call-control-sdk';
 import { createCallStore } from './callcontrol/call-store.ts';
-import { filterMcpTools, McpManager, connectCustomMcpServers } from '@3cx-examples/mcp';
-import type { CustomMcpRouter } from '@3cx-examples/mcp';
+import { filterMcpTools, McpManager, McpRuntimeManager } from '@3cx-examples/mcp';
 import appconfig from './app-config.ts';
 import { loadAgentProfile } from './agent/agent-profiles.ts';
 import type { AgentProfile } from './agent/agent-profiles.ts';
+import { AdminConfigStore } from './admin/config-store.ts';
+import { AdminLogHub } from './admin/log-hub.ts';
+import { CertificateManager, assertSecretFilePermissions } from './admin/certificate-manager.ts';
+import { AdminServer } from './admin/admin-server.ts';
+
+const adminLogHub = new AdminLogHub();
+adminLogHub.installConsoleMirror();
 
 async function main() {
     console.log(chalk.cyan('alibaba-qwen-realtime starting'));
@@ -26,6 +32,21 @@ async function main() {
     }
 
     console.log(chalk.cyan(`   Voice: ${profile?.voice ?? appconfig.realtimeVoice ?? 'Ethan'}`));
+
+    const adminConfig = appconfig.admin;
+    const adminEnabled = Boolean(adminConfig && adminConfig.enabled !== false);
+    const configStore = new AdminConfigStore(
+        appconfig.customMcpServers,
+        adminConfig?.stateFile,
+        adminEnabled ? adminConfig?.publicBaseUrl : undefined,
+    );
+    let certificateManager: CertificateManager | undefined;
+    if (adminEnabled && adminConfig) {
+        assertSecretFilePermissions();
+        certificateManager = new CertificateManager(adminConfig.tls);
+        // Fail before opening PBX/Qwen connections rather than silently exposing HTTP.
+        certificateManager.tlsOptions();
+    }
 
     const client = new CallControlClient({
         pbxBase: appconfig.pbxBase,
@@ -64,12 +85,35 @@ async function main() {
         mcpToolDefs = [];
     }
 
-    const customMcpRouter: CustomMcpRouter | undefined = await connectCustomMcpServers(
-        appconfig.customMcpServers,
-        profile?.mcpTools,
-    );
+    const runtimeServers = adminEnabled
+        ? configStore.getServers()
+        : (appconfig.customMcpServers ?? []);
+    const customMcpRuntime = new McpRuntimeManager(runtimeServers, profile?.mcpTools);
+    await customMcpRuntime.initialize();
 
-    createCallStore(client, appconfig, profile, mcpManager, mcpToolDefs, customMcpRouter);
+    const callStore = createCallStore(client, appconfig, profile, mcpManager, mcpToolDefs, customMcpRuntime);
+
+    let adminServer: AdminServer | undefined;
+    if (adminEnabled && adminConfig && certificateManager) {
+        adminServer = new AdminServer({
+            config: adminConfig,
+            configStore,
+            mcpRuntime: customMcpRuntime,
+            certificateManager,
+            logHub: adminLogHub,
+            getActiveCallCount: callStore.getActiveCallCount,
+        });
+        await adminServer.start();
+    } else {
+        console.log(chalk.yellow('[Admin] dashboard disabled; add admin configuration to config.yaml to enable it'));
+    }
+
+    const shutdown = (): void => {
+        adminServer?.close();
+        customMcpRuntime.close();
+    };
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
 
     console.log(chalk.green('All systems ready (Qwen realtime mode)'));
 }

@@ -15,6 +15,7 @@ interface OAuthState {
     clientInformation?: OAuthClientInformationMixed;
     tokens?: OAuthTokens;
     codeVerifier?: string;
+    authorizationServer?: string;
 }
 
 function readState(path: string): OAuthState {
@@ -45,8 +46,11 @@ function openAuthorizationUrl(url: URL, enabled: boolean): void {
 export interface OAuthProviderOptions {
     serverName: string;
     callbackPort?: number;
+    /** Public callback used by browser-based admin applications. */
+    redirectUrl?: string;
     tokenFile?: string;
     openBrowser?: boolean;
+    onAuthorizationUrl?: (url: URL) => void;
 }
 
 /** OAuth 2.1 provider with dynamic client registration and local token persistence. */
@@ -55,14 +59,16 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     private readonly callback: URL;
     private readonly metadata: OAuthClientMetadata;
     private readonly shouldOpenBrowser: boolean;
+    private readonly onAuthorizationUrl?: (url: URL) => void;
     private readonly oauthState: string;
     private stateData: OAuthState;
 
     constructor(options: OAuthProviderOptions) {
         const port = options.callbackPort ?? 8090;
-        this.callback = new URL(`http://127.0.0.1:${port}/oauth/callback`);
+        this.callback = new URL(options.redirectUrl ?? `http://127.0.0.1:${port}/oauth/callback`);
         this.path = resolve(options.tokenFile ?? `.mcp-oauth/${options.serverName}.json`);
         this.shouldOpenBrowser = options.openBrowser !== false;
+        this.onAuthorizationUrl = options.onAuthorizationUrl;
         this.oauthState = randomBytes(24).toString('hex');
         this.stateData = readState(this.path);
         this.metadata = {
@@ -109,6 +115,12 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     }
 
     redirectToAuthorization(authorizationUrl: URL): void {
+        this.stateData.authorizationServer = authorizationUrl.origin;
+        writeState(this.path, this.stateData);
+        if (this.onAuthorizationUrl) {
+            this.onAuthorizationUrl(authorizationUrl);
+            return;
+        }
         openAuthorizationUrl(authorizationUrl, this.shouldOpenBrowser);
     }
 
@@ -120,6 +132,53 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     codeVerifier(): string {
         if (!this.stateData.codeVerifier) throw new Error('OAuth PKCE verifier is missing');
         return this.stateData.codeVerifier;
+    }
+
+    /** Remove locally held user credentials while retaining dynamic client registration. */
+    clearAuthorization(): void {
+        this.stateData.tokens = undefined;
+        this.stateData.codeVerifier = undefined;
+        writeState(this.path, this.stateData);
+    }
+
+    /** Best-effort RFC 7009 revocation when the authorization server advertises it. */
+    async revokeTokens(): Promise<boolean> {
+        const tokens = this.stateData.tokens;
+        const authorizationServer = this.stateData.authorizationServer;
+        if (!tokens || !authorizationServer) return false;
+
+        let endpoint: string | undefined;
+        try {
+            const metadataUrl = new URL('/.well-known/oauth-authorization-server', authorizationServer);
+            const response = await fetch(metadataUrl, { headers: { Accept: 'application/json' } });
+            if (response.ok) {
+                const metadata = await response.json() as { revocation_endpoint?: string };
+                endpoint = metadata.revocation_endpoint;
+            }
+        } catch {
+            return false;
+        }
+        if (!endpoint) return false;
+
+        const client = this.stateData.clientInformation;
+        const revoke = async (token: string, hint: string): Promise<boolean> => {
+            const body = new URLSearchParams({ token, token_type_hint: hint });
+            if (client?.client_id) body.set('client_id', client.client_id);
+            if (client && 'client_secret' in client && client.client_secret) {
+                body.set('client_secret', client.client_secret);
+            }
+            const response = await fetch(endpoint!, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body,
+            });
+            return response.ok;
+        };
+
+        let revoked = false;
+        if (tokens.refresh_token) revoked = await revoke(tokens.refresh_token, 'refresh_token') || revoked;
+        if (tokens.access_token) revoked = await revoke(tokens.access_token, 'access_token') || revoked;
+        return revoked;
     }
 }
 

@@ -59,8 +59,35 @@ agentName: Assistant
 Then start from the repo root:
 
 ```bash
-yarn start:alibaba-qwen
+yarn start:qwenalibaba
 ```
+
+`yarn start:alibaba-qwen` remains an equivalent alias.
+
+## HTTPS administration dashboard
+
+The Qwen process can also serve an intranet-only Chinese administration page with Overview, Logs, MCP, and Certificates tabs. Enable the `admin` block shown in `config.yaml.example`, then prepare a public DNS name that resolves to the server's private IP for intranet users.
+
+Install **lego v5.0.4** and create two mode-`0600` files containing a dedicated Alibaba Cloud DNS RAM access key and secret. Point lego to them without putting the values in YAML:
+
+```bash
+export ALICLOUD_ACCESS_KEY_FILE=/secure/alidns-access-key
+export ALICLOUD_SECRET_KEY_FILE=/secure/alidns-secret-key
+yarn cert:init:qwenalibaba
+yarn start:qwenalibaba
+```
+
+The first command obtains a Let's Encrypt certificate through the `alidns` DNS-01 provider. The dashboard then checks renewal every 12 hours and can run staging, production, or immediate renewal operations. It never starts a plaintext HTTP fallback.
+
+The dashboard is intentionally unauthenticated and does not apply an IP allowlist. Anyone who can reach the configured address can read complete call/tool logs and operate MCP authorization, so the address must be restricted by the company firewall or VLAN.
+
+### MCP authorization behavior
+
+- `streamable-http` is the default and supports remote browser OAuth through the dashboard.
+- `mcp-remote` is pinned to `0.1.38` and runs as a local stdio compatibility process with an isolated cache per server. Its OAuth callback is local to the server, so use it only with no auth, bearer auth, or credentials pre-authorized on the server.
+- Saving normal MCP configuration uses a new connection generation: current calls finish on the old connection and new calls receive the new tool snapshot. Disabling or deauthorizing a server blocks it immediately.
+- Zoho **Authorization via Connection** remains an upstream Zoho Super Admin operation. The dashboard controls the MCP client token and shows the Zoho console link separately.
+- MCP URLs and bearer tokens are write-only in the API. Runtime edits are stored in `data/admin-state.json`; credentials are stored separately under `data/secrets`, all with mode `0600`.
 
 ### Calling the Agent
 
@@ -101,15 +128,13 @@ No separate STT, LLM, or TTS pipeline — the realtime model handles conversatio
 
 ### MCP Tools
 
-MCP is connected at startup via `@3cx-examples/mcp`. 3CX tools are discovered and passed to the realtime session. Optional extra servers: `customMcpServers` in `config.yaml.example`. Enable tools in `agents/<profile>.yaml` by listing exact names under `mcpTools` (e.g. `list_phonebook`, `googlecalendar.quick_add`).
+MCP is managed by a long-lived `McpRuntimeManager`. 3CX tools are discovered and passed to the realtime session, while optional custom servers can be reconfigured and reauthorized without restarting the phone process. Enable tools in `agents/<profile>.yaml` by listing exact names under `mcpTools`.
 
 ```typescript
 // index.ts — 3CX MCP + optional custom MCP, filtered by profile.mcpTools
 const filtered = filterMcpTools(toolsResult.tools, profile?.mcpTools);
-const customMcpRouter = await connectCustomMcpServers(
-  appconfig.customMcpServers,
-  profile?.mcpTools,
-);
+const customMcpRuntime = new McpRuntimeManager(customServers, profile?.mcpTools);
+await customMcpRuntime.initialize();
 ```
 
 ---

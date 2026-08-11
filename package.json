@@ -12,10 +12,12 @@
     "lint": "yarn workspaces foreach -A run lint",
     "start:openai": "yarn workspace @3cx-examples/openai-realtime start",
     "start:alibaba-qwen": "yarn workspace @3cx-examples/alibaba-qwen-realtime start",
+    "start:qwenalibaba": "yarn workspace @3cx-examples/alibaba-qwen-realtime start",
+    "cert:init:qwenalibaba": "yarn workspace @3cx-examples/alibaba-qwen-realtime cert:init",
     "start:xai": "yarn workspace @3cx-examples/xai-realtime start",
     "start:gemini": "yarn workspace @3cx-examples/gemini-realtime start",
     "start:web-dialer": "yarn workspace @3cx-examples/web-dialer start",
-    "start": "echo '' && echo 'Please specify an example to start:' && echo '' && echo '  yarn start:openai            # OpenAI Realtime API' && echo '  yarn start:alibaba-qwen      # Alibaba Qwen Omni Realtime' && echo '  yarn start:xai               # xAI Grok Voice Agent' && echo '  yarn start:gemini            # Gemini Live API' && echo '  yarn start:web-dialer        # Browser dialer (no SIP registration)' && echo '' && exit 1"
+    "start": "echo '' && echo 'Please specify an example to start:' && echo '' && echo '  yarn start:openai            # OpenAI Realtime API' && echo '  yarn start:alibaba-qwen      # Alibaba Qwen Omni Realtime' && echo '  yarn start:qwenalibaba       # Alibaba Qwen + HTTPS admin dashboard' && echo '  yarn start:xai               # xAI Grok Voice Agent' && echo '  yarn start:gemini            # Gemini Live API' && echo '  yarn start:web-dialer        # Browser dialer (no SIP registration)' && echo '' && exit 1"
   },
   "packageManager": "yarn@4.16.0"
 }
