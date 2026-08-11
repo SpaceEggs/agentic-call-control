@@ -6,10 +6,18 @@ All examples use a **single realtime audio stream** (OpenAI Realtime, Gemini Liv
 
 All examples support the **3CX MCP server** for phonebook lookups and contact management.
 
-Optional **extra MCP servers** (calendars, CRMs, etc.) can be added via `customMcpServers` in each example’s `config.yaml`. Each server supports token-based authentication — `bearer` (with a token) or `none` for unauthenticated servers:
+Optional **extra MCP servers** (calendars, CRMs, etc.) can be added via `customMcpServers` in each example’s `config.yaml`. Servers can use browser-based `oauth`, token-based `bearer`, or `none` for unauthenticated servers:
 
 ```yaml
 customMcpServers:
+  - name: ZohoCRM
+    url: https://your-server.zohomcp.com/mcp/your-id/message
+    auth:
+      type: oauth
+      callbackPort: 8090
+      tokenFile: .mcp-oauth/zoho-crm.json
+    enabled: true
+
   - name: GoogleCalendar
     url: https://mcp.example.com/your-server
     auth:

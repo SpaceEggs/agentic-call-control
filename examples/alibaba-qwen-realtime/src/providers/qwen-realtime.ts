@@ -80,6 +80,8 @@ export function createQwenRealtimeBridge(
     let ws: WebSocket | null = null;
     let currentResponseId = '';
     let responseActive = false;
+    let greetingSent = false;
+    let restoreInstructionsAfterResponse = false;
     let audioMonitor: AudioPipeMonitor | null = null;
     const pendingCalls: PendingFunctionCall[] = [];
 
@@ -129,6 +131,8 @@ export function createQwenRealtimeBridge(
     };
 
     const sendGreeting = () => {
+        if (greetingSent || stopped) return;
+        greetingSent = true;
         // DashScope requires at least one user message before response.create.
         // Pass the configured greeting verbatim so the model says it as-is
         // instead of improvising its own opening line.
@@ -181,9 +185,14 @@ export function createQwenRealtimeBridge(
 
         switch (type) {
             case 'session.created':
+                log.info('SESSION_CREATED');
+                console.log(chalk.gray('[Qwen Realtime] session.created'));
+                break;
+
             case 'session.updated':
-                log.info(type === 'session.created' ? 'SESSION_CREATED' : 'SESSION_UPDATED');
-                console.log(chalk.gray(`[Qwen Realtime] ${type}`));
+                log.info('SESSION_UPDATED');
+                console.log(chalk.gray('[Qwen Realtime] session.updated'));
+                sendGreeting();
                 break;
 
             case 'response.output_item.added': {
@@ -279,6 +288,13 @@ export function createQwenRealtimeBridge(
                 log.speechEvent('AGENT_SPEECH_STOP');
                 if (pendingCalls.length > 0) {
                     void handlePendingFunctionCalls();
+                } else if (restoreInstructionsAfterResponse) {
+                    restoreInstructionsAfterResponse = false;
+                    send({
+                        type: 'session.update',
+                        session: { instructions: config.instructions },
+                    });
+                    console.log(chalk.gray('[Qwen Realtime] normal instructions restored after tool failure reply'));
                 }
                 break;
             }
@@ -314,6 +330,8 @@ export function createQwenRealtimeBridge(
         pendingCalls.length = 0;
 
         let callAction: ToolResult | null = null;
+        let successfulToolCalls = 0;
+        let failureReply = '';
 
         for (const call of calls) {
             try {
@@ -333,8 +351,14 @@ export function createQwenRealtimeBridge(
                 if (result.action) {
                     callAction = result;
                 }
+                if (result.failed) {
+                    failureReply ||= result.failureReply ?? '抱歉，系统暂时无法完成查询，请稍后再试。';
+                } else {
+                    successfulToolCalls++;
+                }
             } catch (err) {
                 const msg = (err as Error).message;
+                failureReply ||= '抱歉，系统暂时无法完成查询，请稍后再试。';
                 log.error(`TOOL_EXEC_ERROR | tool=${call.name} call_id=${call.callId} error="${msg}"`);
                 console.error(chalk.red(`[Qwen Realtime] tool exec error (${call.name}):`), err);
                 send({
@@ -351,6 +375,18 @@ export function createQwenRealtimeBridge(
 
         if (callAction) {
             executeCallAction(callAction);
+        } else if (failureReply && successfulToolCalls === 0) {
+            // Temporarily narrow the system prompt for the immediate follow-up.
+            // This prevents the model from turning an MCP error into fabricated CRM data.
+            restoreInstructionsAfterResponse = true;
+            send({
+                type: 'session.update',
+                session: {
+                    instructions: `${config.instructions}\n\nCRITICAL TOOL FAILURE OVERRIDE:\nEvery tool call in the latest round failed and returned no business data. Do not retry a tool in this response. Reply with exactly this one sentence and nothing else: ${failureReply}`,
+                },
+            });
+            console.log(chalk.yellow(`[Qwen Realtime] tool failure guard → "${failureReply}"`));
+            send({ type: 'response.create' });
         } else {
             send({ type: 'response.create' });
         }
@@ -445,7 +481,6 @@ export function createQwenRealtimeBridge(
         log.info('WS_OPEN');
         console.log(chalk.green('[Qwen Realtime] WebSocket connected'));
         sendSessionUpdate();
-        sendGreeting();
         startAudioPipe();
     });
 

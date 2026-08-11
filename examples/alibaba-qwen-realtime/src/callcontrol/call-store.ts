@@ -55,6 +55,8 @@ export function createCallStore(
 
         const localToolDefs = buildLocalTools({
             callScreening: profile?.callScreening,
+            crmQueries: customMcpRouter?.has('ZohoCRM_getUsers')
+                && customMcpRouter.has('ZohoCRM_executeCOQLQuery'),
         });
 
         const promptTools = [
@@ -165,7 +167,27 @@ export function createCallStore(
     };
 
     client.on('participantConnected', handleParticipantConnected);
+    client.on('participantUpdated', (participant) => {
+        if (participant.info.status === 'Connected') {
+            handleParticipantConnected(participant);
+        }
+    });
     client.on('participantDisconnected', handleParticipantDisconnected);
+
+    // Calls can reach the auto-answering RoutePoint while MCP servers are still
+    // connecting. The SDK initializes those participants into state but does not
+    // replay participantConnected for them, so refresh each existing connected leg
+    // after listeners are registered; participantUpdated above starts the bridge.
+    const existingParticipants = client.getState().callcontrol
+        .get(appConfig.appId)?.participants.values() ?? [];
+    for (const participant of existingParticipants) {
+        if (participant.status !== 'Connected' || participant.id == null) continue;
+        void client.refreshParticipant(participant.id).catch((error: Error) => {
+            console.error(chalk.red(
+                `[CallStore] failed to recover participant ${participant.id}: ${error.message}`,
+            ));
+        });
+    }
 
     console.log(chalk.cyan('[CallStore] initialized (Qwen Omni realtime)'));
 }

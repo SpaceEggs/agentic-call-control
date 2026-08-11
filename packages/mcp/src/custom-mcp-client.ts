@@ -7,14 +7,25 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import chalk from 'chalk';
 import type { McpToolDefinition } from './mcp-client.ts';
 import { coerceToolArguments } from './tool-schema.ts';
+import { OAuthCallbackServer, PersistentOAuthProvider } from './oauth-provider.ts';
 
 export type CustomMcpAuth =
     | { type: 'none' }
-    | { type: 'bearer'; token: string };
+    | { type: 'bearer'; token: string }
+    | {
+        type: 'oauth';
+        /** Local callback port used during first-time browser authorization. */
+        callbackPort?: number;
+        /** Token store path, relative to the process working directory. */
+        tokenFile?: string;
+        /** Open the authorization URL automatically on macOS. Defaults to true. */
+        openBrowser?: boolean;
+    };
 
 export interface CustomMcpServerConfig {
     name: string;
@@ -54,17 +65,76 @@ export class CustomMcpConnection {
     }
 
     async connect(): Promise<void> {
-        const transport = new StreamableHTTPClientTransport(
+        const oauth = this.cfg.auth?.type === 'oauth'
+            ? new PersistentOAuthProvider({
+                serverName: this.name.replace(/[^a-zA-Z0-9._-]/g, '_'),
+                callbackPort: this.cfg.auth.callbackPort,
+                tokenFile: this.cfg.auth.tokenFile,
+                openBrowser: this.cfg.auth.openBrowser,
+            })
+            : undefined;
+        const createTransport = () => new StreamableHTTPClientTransport(
             new URL(this.cfg.url),
-            { requestInit: { headers: authHeaders(this.cfg.auth) } },
+            {
+                authProvider: oauth,
+                requestInit: { headers: authHeaders(this.cfg.auth) },
+            },
         );
-
-        this.client = new Client(
+        const createClient = () => new Client(
             { name: 'agentic-call-control', version: '1.0.0' },
             { capabilities: {} },
         );
-        await this.client.connect(transport);
 
+        let transport = createTransport();
+        this.client = createClient();
+        if (oauth) {
+            // Existing tokens (including refresh tokens) normally connect without
+            // opening a callback port. Fall through to interactive auth only when
+            // the server rejects the persisted credentials.
+            if (oauth.tokens()) {
+                let connected = false;
+                try {
+                    await this.client.connect(transport);
+                    connected = true;
+                } catch (error) {
+                    if (!(error instanceof UnauthorizedError)) throw error;
+                }
+                if (connected) {
+                    await this.loadTools();
+                    return;
+                }
+                transport = createTransport();
+                this.client = createClient();
+            }
+
+            const callback = new OAuthCallbackServer(oauth.redirectUrl, oauth.expectedState());
+            const codePromise = callback.waitForCode();
+            try {
+                await this.client.connect(transport);
+                callback.close();
+                void codePromise.catch(() => undefined);
+            } catch (error) {
+                if (!(error instanceof UnauthorizedError)) {
+                    callback.close();
+                    void codePromise.catch(() => undefined);
+                    throw error;
+                }
+
+                const code = await codePromise;
+                await transport.finishAuth(code);
+                transport = createTransport();
+                this.client = createClient();
+                await this.client.connect(transport);
+            }
+        } else {
+            await this.client.connect(transport);
+        }
+
+        await this.loadTools();
+    }
+
+    private async loadTools(): Promise<void> {
+        if (!this.client) throw new Error(`CustomMCP "${this.name}" not connected`);
         const { tools } = await this.client.listTools();
         this.tools = tools.map((t) => ({
             name: t.name,

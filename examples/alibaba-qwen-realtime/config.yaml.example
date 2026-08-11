@@ -23,6 +23,15 @@ speakOnRouteFailure: true
 routeFailureUserReply: I am having trouble completing that transfer. Please hold or call back in a moment.
 
 customMcpServers:
+   # OAuth MCP server (opens the browser on first connection)
+   - name: ZohoCRM
+     url: https://your-server.zohomcp.com/mcp/your-id/message
+     auth:
+       type: oauth
+       callbackPort: 8090
+       tokenFile: .mcp-oauth/zoho-crm.json
+     enabled: true
+
    # Remote MCP server (bearer auth)
    - name: GoogleCalendar
      url: https://mcp.example.com/your-server

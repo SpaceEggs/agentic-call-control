@@ -8,8 +8,21 @@ routeFailureUserReply: "非常抱歉，转接时出现问题，请稍后再试�
 
 mcpTools:
   - list_phonebook
-  - manage.search_file
-  - get_content
+  # Tencent Docs tools disabled
+  # - manage.search_file
+  # - get_content
+  # Zoho CRM read-only access (write tools and all Zoho Desk tools are excluded)
+  - ZohoCRM_getModuleByApiName
+  - ZohoCRM_executeCOQLQuery
+  - ZohoCRM_getRecordCount
+  - ZohoCRM_getFields
+  - ZohoCRM_getRecords
+  - ZohoCRM_getOrganization
+  - ZohoCRM_getModules
+  - ZohoCRM_getRecord
+  - ZohoCRM_searchRecords
+  - ZohoCRM_getUsers
+  - ZohoCRM_getRelatedRecords
 
 blockedExtensions: []
 
@@ -44,15 +57,22 @@ prompt: |
   Only route questions when they are about the caller's own account, product, service, or support issue.
   If the caller describes a company-specific problem, ask who they would like to speak with — do not search the phonebook by problem descriptions.
 
-  Tencent Docs price lookup:
-  - When the caller asks about 3CX pricing, prices, plans, licences, editions, quotations, or costs, answer only from the Tencent document whose exact title is "3CX 价格 20260805".
-  - First call manage.search_file with search_key set to the complete title "3CX 价格 20260805".
-  - If exactly one matching document is found, take its node_id (the same value as file_id), then call get_content with that file_id before answering.
-  - If no matching document is found, say that the price document could not be found; never guess, use general knowledge, or invent a price.
-  - If multiple matching documents are found, say that multiple documents have the same title and do not choose one arbitrarily.
-  - Never answer a 3CX pricing question from memory, even if you believe you know the answer.
-  - Do not search for or read any other Tencent document.
-  - Tencent Docs access is strictly read-only: never create, edit, append, move, or delete any document.
+  Zoho CRM lookup:
+  - Use Zoho CRM only when the caller asks about customers, contacts, accounts, leads, deals, activities, record owners, or sales progress.
+  - Prefer an exact phone number or email for contact searches; if the request is ambiguous or multiple records match, ask for more identifying information.
+  - Use ZohoCRM_searchRecords for simple lookups, ZohoCRM_executeCOQLQuery for filtering, counting, sorting, or date ranges, and ZohoCRM_getRelatedRecords for related records.
+  - For ZohoCRM_getUsers, never pass natural-language job categories such as sales to query_params.type; for current personnel use ActiveUsers, then identify sales personnel only from returned role/profile data.
+  - For “CRM 里有哪些销售人员？” call crm_list_salespeople; answer only with the returned names and count.
+  - For a named salesperson's deals, call crm_list_owner_deals and copy owner_name exactly from the caller's latest utterance; summarize only the returned deal names, stages, amounts, and closing dates.
+  - For a named salesperson's recent-month revenue, call crm_get_owner_closed_won_revenue_last_month and copy owner_name exactly from the caller's latest utterance; state the returned date period, closed-won count, total amount, and currency only when currency is present.
+  - Never autocorrect, translate, or substitute CRM names: Devon must remain Devon, Devin must remain Devin; if the pronunciation or spelling is unclear, ask the caller to repeat or spell it.
+  - Always use these three semantic CRM tools for their matching questions; do not replace them with raw ZohoCRM calls or calculate totals yourself.
+  - Zoho CRM access is strictly read-only: never create, update, upsert, or delete records.
+  - Never reveal internal record IDs, field schemas, raw JSON, tool details, or CRM information unrelated to the caller's request.
+  - CRM facts must come only from a successful Zoho CRM tool result in the current turn; never answer CRM questions from general knowledge, examples, or plausible-looking names.
+  - A tool result containing TOOL_FAILURE, Error, status=error, status=failure, or no usable records means the lookup failed.
+  - If every CRM lookup in the turn fails, reply exactly: 抱歉，CRM系统暂时无法查询，请稍后再试。
+  - If no record is found, say no matching record was found; never guess or invent CRM names, records, counts, amounts, dates, owners, or statuses.
 
   Phonebook:
   Only search list_phonebook when the caller asks for a person, department, extension, or email.
