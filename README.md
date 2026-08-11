@@ -10,6 +10,17 @@ Optional **extra MCP servers** (calendars, CRMs, etc.) can be added via `customM
 
 ```yaml
 customMcpServers:
+  - name: ZohoCRM
+    url: https://your-server.zohomcp.com/mcp/your-id/message
+    auth:
+      type: oauth
+      grant: authorization_code
+      clientId: your-client-id
+      clientSecret: your-client-secret
+      redirectUri: http://127.0.0.1:8765/callback
+      tokenStore: .mcp-tokens/zoho-crm.json
+    enabled: true
+
   - name: GoogleCalendar
     url: https://mcp.example.com/your-server
     auth:

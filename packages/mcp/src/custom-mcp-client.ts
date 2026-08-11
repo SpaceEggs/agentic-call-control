@@ -163,7 +163,6 @@ export class CustomMcpConnection {
                 ...(Object.keys(headers).length > 0 ? { requestInit: { headers } } : {}),
             },
         );
-
         this.client = new Client(
             { name: 'agentic-call-control', version: '1.0.0' },
             { capabilities: {} },

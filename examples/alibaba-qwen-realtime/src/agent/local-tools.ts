@@ -85,7 +85,46 @@ export const TOOL_TRANSFER_TO_VOICEMAIL: ChatCompletionFunctionTool = {
     },
 };
 
-export function buildLocalTools(opts?: { callScreening?: boolean }): ChatCompletionFunctionTool[] {
+export const TOOL_CRM_LIST_SALESPEOPLE: ChatCompletionFunctionTool = {
+    type: 'function',
+    function: {
+        name: 'crm_list_salespeople',
+        description: 'Reliably list active CRM salespeople. Use this exact tool for questions such as “CRM 里有哪些销售人员？”.',
+        parameters: { type: 'object', properties: {} },
+    },
+};
+
+export const TOOL_CRM_LIST_OWNER_DEALS: ChatCompletionFunctionTool = {
+    type: 'function',
+    function: {
+        name: 'crm_list_owner_deals',
+        description: 'Reliably list CRM deals owned by a named salesperson. Pass owner_name exactly as the caller said it; never autocorrect or substitute a similar name.',
+        parameters: {
+            type: 'object',
+            properties: {
+                owner_name: { type: 'string', description: 'CRM user name copied exactly from the caller’s latest utterance' },
+            },
+            required: ['owner_name'],
+        },
+    },
+};
+
+export const TOOL_CRM_GET_OWNER_REVENUE: ChatCompletionFunctionTool = {
+    type: 'function',
+    function: {
+        name: 'crm_get_owner_closed_won_revenue_last_month',
+        description: 'Reliably calculate the total Amount of closed-won CRM deals owned by a named salesperson during the rolling month ending today. Pass owner_name exactly as the caller said it.',
+        parameters: {
+            type: 'object',
+            properties: {
+                owner_name: { type: 'string', description: 'CRM user name copied exactly from the caller’s latest utterance' },
+            },
+            required: ['owner_name'],
+        },
+    },
+};
+
+export function buildLocalTools(opts?: { callScreening?: boolean; crmQueries?: boolean }): ChatCompletionFunctionTool[] {
     const tools: ChatCompletionFunctionTool[] = [
         TOOL_TRANSFER_CALL,
         TOOL_DROP_CALL,
@@ -93,6 +132,9 @@ export function buildLocalTools(opts?: { callScreening?: boolean }): ChatComplet
     ];
     if (opts?.callScreening) {
         tools.push(TOOL_SAVE_CALLER_NAME, TOOL_SAVE_CALLER_COMPANY, TOOL_SAVE_CALLER_REASON);
+    }
+    if (opts?.crmQueries) {
+        tools.push(TOOL_CRM_LIST_SALESPEOPLE, TOOL_CRM_LIST_OWNER_DEALS, TOOL_CRM_GET_OWNER_REVENUE);
     }
     return tools;
 }

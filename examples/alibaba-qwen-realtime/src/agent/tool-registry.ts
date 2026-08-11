@@ -6,6 +6,10 @@ import type { CustomMcpRouter, McpManager } from '@3cx-examples/mcp';
 
 export interface ToolResult {
     content: string;
+    /** Tool execution failed and its content must not be treated as business data. */
+    failed?: boolean;
+    /** Safe sentence to speak when every tool call in the round failed. */
+    failureReply?: string;
     action?: 'transfer' | 'drop' | 'divert' | 'transfer_voicemail';
     destination?: string;
 }

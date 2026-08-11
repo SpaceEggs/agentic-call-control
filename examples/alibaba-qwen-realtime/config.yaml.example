@@ -23,6 +23,19 @@ speakOnRouteFailure: true
 routeFailureUserReply: I am having trouble completing that transfer. Please hold or call back in a moment.
 
 customMcpServers:
+   # OAuth MCP server. Provision before starting the agent:
+   #   yarn mcp:auth --config examples/alibaba-qwen-realtime/config.yaml ZohoCRM
+   - name: ZohoCRM
+     url: https://your-server.zohomcp.com/mcp/your-id/message
+     auth:
+       type: oauth
+       grant: authorization_code
+       clientId: your-client-id
+       clientSecret: your-client-secret
+       redirectUri: http://127.0.0.1:8765/callback
+       tokenStore: .mcp-tokens/zoho-crm.json
+     enabled: true
+
    # Remote MCP server (bearer auth)
    - name: GoogleCalendar
      url: https://mcp.example.com/your-server
