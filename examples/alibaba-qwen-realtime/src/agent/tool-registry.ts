@@ -3,6 +3,7 @@ import type { AgentProfile } from './agent-profiles.ts';
 import type { CallState } from './call-state.ts';
 import type { CallLogger } from '../logging/call-logger.ts';
 import type { CustomMcpRouter, McpManager } from '@3cx-examples/mcp';
+import type { DeskConfig } from '../app-config.ts';
 
 export interface ToolResult {
     content: string;
@@ -20,6 +21,7 @@ export interface ToolDeps {
     customMcpRouter?: CustomMcpRouter;
     profile: AgentProfile;
     callState: CallState;
+    desk?: DeskConfig;
     onCleanup: () => void;
     logger?: CallLogger;
 }

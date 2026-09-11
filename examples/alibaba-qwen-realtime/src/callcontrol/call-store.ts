@@ -3,7 +3,7 @@ import type { CallControlClient, Participant } from '@3cx/call-control-sdk';
 import type { AppConfig } from '../app-config.ts';
 import type { AgentProfile } from '../agent/agent-profiles.ts';
 import { renderPrompt } from '../agent/agent-profiles.ts';
-import { createCallState } from '../agent/call-state.ts';
+import { createCallState, resolveRemoteCallerNumber } from '../agent/call-state.ts';
 import { buildLocalTools } from '../agent/local-tools.ts';
 import { createToolExecutor } from '../agent/tool-executor.ts';
 import { createCallLogger } from '../logging/call-logger.ts';
@@ -12,6 +12,7 @@ import { createQwenRealtimeBridge } from '../providers/qwen-realtime.ts';
 import type { QwenBridgeHandle, QwenToolDef } from '../providers/qwen-realtime.ts';
 import { getCallLogger } from '@3cx-examples/logger';
 import type { CallLogger as FileCallLogger } from '@3cx-examples/logger';
+import { deskToolsReady } from '../agent/desk-tools.ts';
 
 interface McpToolDef {
     name: string;
@@ -49,21 +50,31 @@ export function createCallStore(
         console.log(chalk.green(`[CallStore] participant ${participant.id} connected`));
 
         const callerName = participant.info.party_caller_name ?? '';
-        const callerNumber = participant.info.party_caller_id ?? '';
+        const callerNumber = resolveRemoteCallerNumber(participant.info, appConfig.appId);
         const callId = `call-${participant.id}-${Date.now()}`;
         const logger = createCallLogger(callId);
         logger.event('call_start', { participantId: participant.id, mode: 'alibaba-qwen-realtime' });
         const fileLog = getCallLogger(participant.id, { tag: 'Qwen' });
         fileLog.callStart(callerName, callerNumber);
+        fileLog.info(`CALL_PARTIES | ${JSON.stringify({
+            ownDn: participant.dn,
+            infoDn: participant.info.dn,
+            partyCallerId: participant.info.party_caller_id,
+            partyDn: participant.info.party_dn,
+            partyDid: participant.info.party_did,
+            resolvedCallerNumber: callerNumber,
+        })}`);
 
         const callState = createCallState(callerName, callerNumber);
         const mcpLease = customMcpRuntime?.acquire();
         const customMcpRouter = mcpLease?.router;
+        const deskSupport = deskToolsReady(appConfig.desk, customMcpRouter);
 
         const localToolDefs = buildLocalTools({
             callScreening: profile?.callScreening,
             crmQueries: customMcpRouter?.has('ZohoCRM_getUsers')
                 && customMcpRouter.has('ZohoCRM_executeCOQLQuery'),
+            deskSupport,
         });
 
         const promptTools = [
@@ -130,6 +141,7 @@ export function createCallStore(
             customMcpRouter,
             profile: profile ?? { role: '', prompt: '', greeting: '' },
             callState,
+            desk: deskSupport ? appConfig.desk : undefined,
             onCleanup: () => cleanup(participant.id),
             logger,
         });

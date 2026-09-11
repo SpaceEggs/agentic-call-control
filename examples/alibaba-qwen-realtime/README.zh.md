@@ -69,6 +69,44 @@ yarn start:alibaba-qwen
 - **内部呼叫** ——从任何已注册的 3CX 分机（桌面电话、Web 客户端或移动应用），拨打**客户端 ID**（配置的 `appId`，例如 `assistant`）。PBX 将直接把呼叫路由到代理。
 - **外部呼叫（DID）** ——如果你为服务主体分配了 DID 号码（上面的第 6 步），外部线路上的呼叫者可以拨打该电话号码接通代理。
 
+## 管理台公开方式
+
+Qwen 进程提供包含概览、日志、MCP 和证书管理的中文管理台。通过 `admin.mode` 二选一：
+
+- `https`（默认）：使用自定义域名和 lego 证书，由应用直接提供 HTTPS。
+- `tailscale-funnel`：应用只在 `127.0.0.1` 提供 HTTP，由 Tailscale Funnel 公开完整管理台并提供 `*.ts.net` 域名和 HTTPS 证书。
+
+直接 HTTPS 模式需要安装 **lego v5.0.4**、配置 `admin.publicBaseUrl`、`admin.tls` 和权限为 `0600` 的阿里云 DNS 凭据文件，然后执行 `yarn cert:init:qwenalibaba`。
+
+Tailscale Funnel 模式不需要自定义域名、lego 或阿里云凭据：
+
+```yaml
+admin:
+  enabled: true
+  mode: tailscale-funnel
+  host: 127.0.0.1
+  port: 8787
+  stateFile: data/admin-state.json
+  tailscaleFunnel:
+    tailscalePath: /usr/bin/tailscale
+    publicPort: 443
+    stopOnExit: true
+    # publicBaseUrl: https://your-node.your-tailnet.ts.net
+```
+
+未配置 `tailscaleFunnel.publicBaseUrl` 时，程序会从 `tailscale status --json` 自动读取当前节点的 `Self.DNSName`。启动时执行后台 Funnel，将整个管理台代理到仅监听 `127.0.0.1` 的 HTTP 服务；正常退出时默认关闭 Funnel。
+
+使用前需要确保 Tailscale 已登录、tailnet policy 已允许 Funnel，并且运行进程的用户可以无交互执行 Tailscale CLI。管理台地址和 OAuth 回调分别为：
+
+```text
+https://<node>.<tailnet>.ts.net/
+https://<node>.<tailnet>.ts.net/api/mcp/oauth/callback
+```
+
+Funnel 公网端口只支持 `443`、`8443` 或 `10000`。管理台没有应用层登录或 IP 白名单；Funnel 模式下，知道或发现该地址的公网用户都可以访问管理功能。
+
+管理台支持 `streamable-http` 和 `mcp-remote` 的浏览器 OAuth。`mcp-remote` 使用独立本地缓存，管理台会注册公网回调并将授权结果转发给本机兼容进程。取消鉴权会同时禁用该 MCP，避免不要求 OAuth 的端点自动重新连接；重新鉴权后会再次启用。若上游端点本身不发起 OAuth challenge，页面会明确提示已直接连接，不会伪造登录页面。
+
 ---
 
 ## 架构
@@ -112,6 +150,12 @@ const mcpCaller = (name, args) => callMcpTool(mcpClient, name, args);
 
 createCallStore(client, appconfig, mcpToolsQwen, mcpCaller);
 ```
+
+### Zoho Desk 分阶段启用
+
+`desk.enabled` 默认为 `false`。正式 Desk 组织授权并提供固定部门 ID 后，配置仅包含 `searchSolutions`、`getArticle`、`searchContacts`、`createContact`、`searchTickets`、`createTicket` 和初始化用的 `getDepartments`。应用只向模型暴露 `desk_search_knowledge` 与 `desk_create_support_ticket` 两个本地语义工具；原始 Desk 工具保持隐藏。
+
+知识库查询失败与“没有匹配文章”是不同状态。只有已发布文章能完整回答问题时才直接答复；否则必须征得来电者同意并完成姓名、公司和事由筛选后，才能使用 3CX 来电号码创建电话回拨工单。同一通话内会复用已经创建的工单。
 
 ---
 

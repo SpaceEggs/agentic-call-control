@@ -7,7 +7,7 @@
     "build": "tsc --noEmit",
     "start": "tsx src/index.ts",
     "cert:init": "tsx src/admin/cert-init.ts",
-    "test": "tsx --test src/admin/*.test.ts",
+    "test": "tsx --test src/admin/*.test.ts src/agent/*.test.ts",
     "lint": "eslint src/"
   },
   "private": true,

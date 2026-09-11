@@ -21,3 +21,17 @@ test('PersistentOAuthProvider stores credentials with mode 0600 and clears token
     assert.equal(provider.tokens(), undefined);
     assert.equal(provider.redirectUrl.toString(), 'https://admin.example.test/api/mcp/oauth/callback');
 });
+
+test('revokeTokens clears local credentials when remote revocation is unavailable', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mcp-oauth-revoke-'));
+    const provider = new PersistentOAuthProvider({
+        serverName: 'test',
+        tokenFile: join(root, 'tokens.json'),
+        openBrowser: false,
+    });
+    provider.redirectToAuthorization(new URL('http://127.0.0.1:1/authorize'));
+    provider.saveTokens({ access_token: 'secret', token_type: 'bearer' });
+
+    assert.equal(await provider.revokeTokens(), false);
+    assert.equal(provider.tokens(), undefined);
+});

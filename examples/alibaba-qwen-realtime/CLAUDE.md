@@ -52,6 +52,7 @@ src/
 │   ├── mcp-client.ts                 # MCP server HTTP connection
 │   └── mcp-manager.ts                # Tool discovery + DashScope schema conversion
 └── logging/call-logger.ts            # Per-call JSONL logs
+└── admin/tailscale-funnel.ts         # Public administration Tailscale Funnel lifecycle
 ```
 
 ## Key Design Points
@@ -62,6 +63,7 @@ src/
 - **Tool calls**: DashScope sends `{ type: 'function_call', callId, name, arguments }`. `qwen-realtime.ts` parses, invokes `tool-executor.ts`, sends result back. Model can chain multiple calls.
 - **Screening guards**: `tool-executor.ts` blocks transfer/voicemail until screening complete (if `callScreening: true` in profile). Missing fields return error to model.
 - **MCP integration**: `mcp-manager.ts` fetches tools from 3CX MCP server at startup, converts to DashScope format, merges with local tools. Runtime calls via HTTP POST.
+- **Administration exposure**: `admin.mode` selects direct lego-backed HTTPS or full-dashboard Tailscale Funnel. Funnel mode keeps the origin HTTP listener on `127.0.0.1` and manages Funnel startup/shutdown.
 - **Agent profiles**: `agents/<name>.yaml` with mustache placeholders (`{{company_name}}`, `{{agent_name}}`, `{{caller_name}}`, `{{caller_number}}`). Profile `voice` overrides config fallback.
 - **Audio drain**: transfer/drop/voicemail wait for current audio response to finish before executing SDK call, then stop bridge.
 

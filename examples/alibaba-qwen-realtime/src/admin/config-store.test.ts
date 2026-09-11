@@ -19,5 +19,7 @@ test('admin overlay keeps bearer secrets separate and injects public OAuth callb
         servers[1]?.auth?.type === 'oauth' && servers[1].auth.redirectUrl,
         'https://admin.example.test/api/mcp/oauth/callback',
     );
+    assert.equal(store.setServerEnabled('oauth', false)[1]?.enabled, false);
+    assert.equal(store.revision, 2);
     assert.throws(() => store.saveServers([], 999), /reload/);
 });

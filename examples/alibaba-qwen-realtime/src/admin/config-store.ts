@@ -47,14 +47,14 @@ export class AdminConfigStore {
     private state: AdminState;
     private readonly statePath: string;
     private readonly secretDir: string;
-    private readonly publicBaseUrl?: string;
+    private readonly oauthCallbackBaseUrl?: string;
 
     constructor(
         baseServers: CustomMcpServerConfig[] = [],
         stateFile = 'data/admin-state.json',
-        publicBaseUrl?: string,
+        oauthCallbackBaseUrl?: string,
     ) {
-        this.publicBaseUrl = publicBaseUrl;
+        this.oauthCallbackBaseUrl = oauthCallbackBaseUrl;
         this.statePath = resolve(stateFile);
         this.secretDir = resolve(dirname(this.statePath), 'secrets/mcp');
         this.state = this.readState(baseServers);
@@ -100,9 +100,20 @@ export class AdminConfigStore {
         return this.state.revision;
     }
 
+    setServerEnabled(id: string, enabled: boolean): CustomMcpServerConfig[] {
+        const index = this.state.customMcpServers.findIndex((server) => (server.id ?? stableId(server.name)) === id);
+        if (index < 0) throw new Error('Unknown MCP server');
+        if (this.state.customMcpServers[index]?.enabled === enabled) return this.getServers();
+        const customMcpServers = structuredClone(this.state.customMcpServers);
+        customMcpServers[index] = { ...customMcpServers[index]!, enabled };
+        this.state = { revision: this.state.revision + 1, customMcpServers };
+        atomicJson(this.statePath, this.state);
+        return this.getServers();
+    }
+
     getServers(): CustomMcpServerConfig[] {
-        const callback = this.publicBaseUrl
-            ? new URL('/api/mcp/oauth/callback', this.publicBaseUrl).toString()
+        const callback = this.oauthCallbackBaseUrl
+            ? new URL('/api/mcp/oauth/callback', this.oauthCallbackBaseUrl).toString()
             : undefined;
         return this.state.customMcpServers.map((server) => {
             const id = server.id ?? stableId(server.name);

@@ -1,3 +1,5 @@
+import type { CallParticipant } from '@3cx/call-control-sdk';
+
 export interface CallerInfo {
     name: string;
     number: string;
@@ -16,10 +18,17 @@ export interface PhonebookContact {
     isAvailable?: boolean;
 }
 
+export interface DeskTicketState {
+    issueKey: string;
+    ticketId?: string;
+    ticketNumber?: string;
+}
+
 export interface CallState {
     callerInfo: CallerInfo;
     screening: CallScreening;
     pendingRoute?: PhonebookContact;
+    deskTicket?: DeskTicketState;
 }
 
 export function createCallState(callerName: string, callerNumber: string): CallState {
@@ -27,6 +36,18 @@ export function createCallState(callerName: string, callerNumber: string): CallS
         callerInfo: { name: callerName, number: callerNumber },
         screening: {},
     };
+}
+
+export function resolveRemoteCallerNumber(info: CallParticipant, ownDn: string): string {
+    const localNumbers = new Set([
+        ownDn.trim(),
+        String(info.dn ?? '').trim(),
+    ].filter(Boolean));
+    const callerId = String(info.party_caller_id ?? '').trim();
+    if (callerId && !localNumbers.has(callerId)) return callerId;
+    const partyDn = String(info.party_dn ?? '').trim();
+    if (partyDn && !localNumbers.has(partyDn)) return partyDn;
+    return '';
 }
 
 export function formatScreening(s: CallScreening): string {

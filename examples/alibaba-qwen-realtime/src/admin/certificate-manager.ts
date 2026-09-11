@@ -4,9 +4,10 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { X509Certificate } from 'node:crypto';
 import type { Server as HttpsServer } from 'node:https';
-import type { AdminConfig } from '../app-config.ts';
+import type { AdminTlsConfig } from '../app-config.ts';
 
 export interface CertificateStatus {
+    managedBy: 'lego' | 'tailscale';
     available: boolean;
     domain: string;
     issuer?: string;
@@ -34,9 +35,9 @@ export class CertificateManager extends EventEmitter {
     private httpsServer: HttpsServer | undefined;
     private readonly dataDir: string;
     private readonly legoPath: string;
-    private readonly config: AdminConfig['tls'];
+    private readonly config: AdminTlsConfig;
 
-    constructor(config: AdminConfig['tls']) {
+    constructor(config: AdminTlsConfig) {
         super();
         this.config = config;
         this.dataDir = resolve(config.dataDir ?? 'data/lego');
@@ -92,6 +93,7 @@ export class CertificateManager extends EventEmitter {
     async status(): Promise<CertificateStatus> {
         const version = await this.legoVersion();
         const status: CertificateStatus = {
+            managedBy: 'lego',
             available: this.hasCertificate(),
             domain: this.config.domain,
             legoAvailable: Boolean(version),

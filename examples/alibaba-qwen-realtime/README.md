@@ -64,11 +64,14 @@ yarn start:qwenalibaba
 
 `yarn start:alibaba-qwen` remains an equivalent alias.
 
-## HTTPS administration dashboard
+## Administration dashboard exposure modes
 
-The Qwen process can also serve an intranet-only Chinese administration page with Overview, Logs, MCP, and Certificates tabs. Enable the `admin` block shown in `config.yaml.example`, then prepare a public DNS name that resolves to the server's private IP for intranet users.
+The Qwen process provides a Chinese administration page with Overview, Logs, MCP, and Certificates tabs. Choose one `admin.mode`:
 
-Install **lego v5.0.4** and create two mode-`0600` files containing a dedicated Alibaba Cloud DNS RAM access key and secret. Point lego to them without putting the values in YAML:
+- `https` (default) serves HTTPS directly with a custom domain and a lego-managed certificate.
+- `tailscale-funnel` serves plaintext HTTP only on `127.0.0.1` and publishes the entire dashboard through Tailscale Funnel, which supplies the public `*.ts.net` hostname and HTTPS certificate.
+
+For direct HTTPS, install **lego v5.0.4**, create two mode-`0600` files containing a dedicated Alibaba Cloud DNS RAM access key and secret, configure `admin.publicBaseUrl` and `admin.tls`, then run:
 
 ```bash
 export ALICLOUD_ACCESS_KEY_FILE=/secure/alidns-access-key
@@ -77,14 +80,33 @@ yarn cert:init:qwenalibaba
 yarn start:qwenalibaba
 ```
 
-The first command obtains a Let's Encrypt certificate through the `alidns` DNS-01 provider. The dashboard then checks renewal every 12 hours and can run staging, production, or immediate renewal operations. It never starts a plaintext HTTP fallback.
+For Tailscale Funnel, no custom domain, lego binary, or Alibaba Cloud credential is required:
 
-The dashboard is intentionally unauthenticated and does not apply an IP allowlist. Anyone who can reach the configured address can read complete call/tool logs and operate MCP authorization, so the address must be restricted by the company firewall or VLAN.
+```yaml
+admin:
+  enabled: true
+  mode: tailscale-funnel
+  host: 127.0.0.1
+  port: 8787
+  stateFile: data/admin-state.json
+  tailscaleFunnel:
+    tailscalePath: /usr/bin/tailscale
+    publicPort: 443
+    stopOnExit: true
+    # publicBaseUrl: https://your-node.your-tailnet.ts.net
+```
+
+When `tailscaleFunnel.publicBaseUrl` is omitted, the process reads `Self.DNSName` from `tailscale status --json`. It starts `tailscale funnel` in background mode, proxies the complete dashboard to its loopback-only HTTP listener, and removes the Funnel on graceful shutdown by default. Tailscale must already be logged in, Funnel must be permitted by the tailnet policy, and the process user must be allowed to run the Tailscale CLI without an interactive privilege prompt.
+
+The dashboard and OAuth callback are available at `https://<node>.<tailnet>.ts.net/` and `https://<node>.<tailnet>.ts.net/api/mcp/oauth/callback`. Funnel ports `443`, `8443`, and `10000` are supported. Set `stopOnExit: false` only when Funnel lifecycle is managed outside this process.
+
+The dashboard intentionally has no application login or IP allowlist. In `tailscale-funnel` mode, anyone on the Internet who knows or discovers the URL can read call/tool logs and operate MCP authorization.
 
 ### MCP authorization behavior
 
 - `streamable-http` is the default and supports remote browser OAuth through the dashboard.
-- `mcp-remote` is pinned to `0.1.38` and runs as a local stdio compatibility process with an isolated cache per server. Its OAuth callback is local to the server, so use it only with no auth, bearer auth, or credentials pre-authorized on the server.
+- `mcp-remote` is pinned to `0.1.38` and runs as a local stdio compatibility process with an isolated cache per server. Dashboard OAuth registers the public dashboard callback and forwards the completed callback to the loopback `mcp-remote` process.
+- Deauthorizing also disables the server, preventing an endpoint that permits credential-free access from reconnecting automatically. Authorizing re-enables it; when the endpoint does not issue an OAuth challenge, the dashboard reports that it connected directly instead of opening a provider page.
 - Saving normal MCP configuration uses a new connection generation: current calls finish on the old connection and new calls receive the new tool snapshot. Disabling or deauthorizing a server blocks it immediately.
 - Zoho **Authorization via Connection** remains an upstream Zoho Super Admin operation. The dashboard controls the MCP client token and shows the Zoho console link separately.
 - MCP URLs and bearer tokens are write-only in the API. Runtime edits are stored in `data/admin-state.json`; credentials are stored separately under `data/secrets`, all with mode `0600`.
@@ -136,6 +158,12 @@ const filtered = filterMcpTools(toolsResult.tools, profile?.mcpTools);
 const customMcpRuntime = new McpRuntimeManager(customServers, profile?.mcpTools);
 await customMcpRuntime.initialize();
 ```
+
+### Staged Zoho Desk enablement
+
+`desk.enabled` defaults to `false`. After the target Desk organization is authorized and supplies a fixed department ID, configure only `searchSolutions`, `getArticle`, `searchContacts`, `createContact`, `searchTickets`, `createTicket`, and the setup-only `getDepartments`. The model sees only the local semantic tools `desk_search_knowledge` and `desk_create_support_ticket`; raw Desk operations remain hidden.
+
+A knowledge lookup failure is distinct from a genuine no-match. The agent answers only from a published article that fully resolves the question. Otherwise it must obtain explicit consent and complete caller screening before creating a phone-callback ticket from the 3CX caller number. A ticket created during the current call is reused on repeated tool calls.
 
 ---
 

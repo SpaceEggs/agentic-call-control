@@ -9,6 +9,8 @@ import type { CallLogger } from '../logging/call-logger.ts';
 import type { CustomMcpRouter, McpManager } from '@3cx-examples/mcp';
 import { ToolRegistry } from './tool-registry.ts';
 import type { ToolResult, ToolDeps, ToolHandler } from './tool-registry.ts';
+import type { DeskConfig } from '../app-config.ts';
+import { registerDeskTools } from './desk-tools.ts';
 
 export type { ToolResult };
 
@@ -18,6 +20,7 @@ export interface ToolExecutorDeps {
     customMcpRouter?: CustomMcpRouter;
     profile: AgentProfile;
     callState: CallState;
+    desk?: DeskConfig;
     onCleanup: () => void;
     logger?: CallLogger;
 }
@@ -448,6 +451,7 @@ function registerBuiltinTools(registry: ToolRegistry): void {
     registry.register('crm_list_salespeople', handleCrmListSalespeople);
     registry.register('crm_list_owner_deals', handleCrmListOwnerDeals);
     registry.register('crm_get_owner_closed_won_revenue_last_month', handleCrmOwnerRevenue);
+    registerDeskTools(registry);
 }
 
 export function createToolExecutor(deps: ToolExecutorDeps) {

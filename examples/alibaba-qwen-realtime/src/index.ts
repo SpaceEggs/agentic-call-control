@@ -9,6 +9,7 @@ import { AdminConfigStore } from './admin/config-store.ts';
 import { AdminLogHub } from './admin/log-hub.ts';
 import { CertificateManager, assertSecretFilePermissions } from './admin/certificate-manager.ts';
 import { AdminServer } from './admin/admin-server.ts';
+import { TailscaleFunnelManager } from './admin/tailscale-funnel.ts';
 
 const adminLogHub = new AdminLogHub();
 adminLogHub.installConsoleMirror();
@@ -35,13 +36,27 @@ async function main() {
 
     const adminConfig = appconfig.admin;
     const adminEnabled = Boolean(adminConfig && adminConfig.enabled !== false);
+    const adminMode = adminConfig?.mode ?? 'https';
+    if (adminEnabled && adminMode !== 'https' && adminMode !== 'tailscale-funnel') {
+        throw new Error('admin.mode must be https or tailscale-funnel');
+    }
+    const tailscaleFunnel = adminEnabled && adminMode === 'tailscale-funnel'
+        ? new TailscaleFunnelManager(adminConfig?.tailscaleFunnel ?? {})
+        : undefined;
+    const adminPublicBaseUrl = tailscaleFunnel
+        ? await tailscaleFunnel.getPublicBaseUrl()
+        : (adminEnabled ? adminConfig?.publicBaseUrl : undefined);
+    if (adminEnabled && !adminPublicBaseUrl) {
+        throw new Error('admin.publicBaseUrl is required when admin.mode is https');
+    }
     const configStore = new AdminConfigStore(
         appconfig.customMcpServers,
         adminConfig?.stateFile,
-        adminEnabled ? adminConfig?.publicBaseUrl : undefined,
+        adminPublicBaseUrl,
     );
     let certificateManager: CertificateManager | undefined;
-    if (adminEnabled && adminConfig) {
+    if (adminEnabled && adminMode === 'https') {
+        if (!adminConfig?.tls) throw new Error('admin.tls is required when admin.mode is https');
         assertSecretFilePermissions();
         certificateManager = new CertificateManager(adminConfig.tls);
         // Fail before opening PBX/Qwen connections rather than silently exposing HTTP.
@@ -94,26 +109,41 @@ async function main() {
     const callStore = createCallStore(client, appconfig, profile, mcpManager, mcpToolDefs, customMcpRuntime);
 
     let adminServer: AdminServer | undefined;
-    if (adminEnabled && adminConfig && certificateManager) {
-        adminServer = new AdminServer({
-            config: adminConfig,
-            configStore,
-            mcpRuntime: customMcpRuntime,
-            certificateManager,
-            logHub: adminLogHub,
-            getActiveCallCount: callStore.getActiveCallCount,
+    let shuttingDown = false;
+    const shutdown = async (): Promise<void> => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        await tailscaleFunnel?.stop().catch((error) => {
+            console.error(chalk.red('[Tailscale] shutdown failed:'), (error as Error).message);
         });
-        await adminServer.start();
-    } else {
-        console.log(chalk.yellow('[Admin] dashboard disabled; add admin configuration to config.yaml to enable it'));
-    }
-
-    const shutdown = (): void => {
         adminServer?.close();
         customMcpRuntime.close();
+        mcpManager?.dispose();
+        client.disconnect();
     };
-    process.once('SIGINT', shutdown);
-    process.once('SIGTERM', shutdown);
+    process.once('SIGINT', () => void shutdown());
+    process.once('SIGTERM', () => void shutdown());
+
+    try {
+        if (adminEnabled && adminConfig && adminPublicBaseUrl) {
+            adminServer = new AdminServer({
+                config: adminConfig,
+                publicBaseUrl: adminPublicBaseUrl,
+                configStore,
+                mcpRuntime: customMcpRuntime,
+                certificateManager,
+                logHub: adminLogHub,
+                getActiveCallCount: callStore.getActiveCallCount,
+            });
+            const adminHandle = await adminServer.start();
+            await tailscaleFunnel?.start(adminHandle.localOrigin);
+        } else {
+            console.log(chalk.yellow('[Admin] dashboard disabled; add admin configuration to config.yaml to enable it'));
+        }
+    } catch (error) {
+        await shutdown();
+        throw error;
+    }
 
     console.log(chalk.green('All systems ready (Qwen realtime mode)'));
 }

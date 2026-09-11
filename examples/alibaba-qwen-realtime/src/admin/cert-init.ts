@@ -2,7 +2,7 @@ import appconfig from '../app-config.ts';
 import { CertificateManager, assertSecretFilePermissions } from './certificate-manager.ts';
 
 async function main(): Promise<void> {
-    if (!appconfig.admin) throw new Error('admin configuration is missing from config.yaml');
+    if (!appconfig.admin?.tls) throw new Error('admin.tls configuration is missing from config.yaml');
     assertSecretFilePermissions();
     const manager = new CertificateManager(appconfig.admin.tls);
     console.log(`[Certificate] requesting ${appconfig.admin.tls.domain} with lego`);

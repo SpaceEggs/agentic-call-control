@@ -22,12 +22,35 @@ initialGreeting: Thank you for calling. How can I help you today?
 speakOnRouteFailure: true
 routeFailureUserReply: I am having trouble completing that transfer. Please hold or call back in a moment.
 
-# === Intranet administration dashboard (HTTPS only) ===
-# Before the first start, install lego v5.0.4, set ALICLOUD_ACCESS_KEY_FILE and
-# ALICLOUD_SECRET_KEY_FILE to mode-0600 files, then run:
-#   yarn cert:init:qwenalibaba
+# === Zoho Desk support workflow ===
+# Keep disabled until a colleague authorizes the MCP server against the target
+# Desk organization and provides the exact fixed support department ID.
+desk:
+  enabled: false
+  orgId: ""              # required; read once with getOrganizations and then fix it here
+  departmentId: ""       # required; never inferred from the first department
+  departmentName: ""     # audit label only
+  channel: Phone
+  priority: Medium
+  duplicateWindowHours: 72
+  # Override after authorization if tools/list returns different names.
+  toolNames:
+    getOrganizations: ZohoDesk_getOrganizations
+    searchSolutions: ZohoDesk_searchSolutions
+    getArticle: ZohoDesk_getArticle
+    searchContacts: ZohoDesk_searchContacts
+    createContact: ZohoDesk_createContact
+    searchTickets: ZohoDesk_searchTickets
+    createTicket: ZohoDesk_createTicket
+    getDepartments: ZohoDesk_getDepartments
+
+# === Administration dashboard (no application login) ===
+# mode=https: direct HTTPS with a custom domain and lego certificate.
+# Before the first start, install lego v5.0.4, configure the two mode-0600
+# ALICLOUD_*_FILE credential files, then run yarn cert:init:qwenalibaba.
 admin:
   enabled: true
+  mode: https
   host: 0.0.0.0
   port: 8443
   publicBaseUrl: https://qwen-admin.example.com:8443
@@ -41,7 +64,30 @@ admin:
     renewCheckHours: 12
     # dnsResolvers: [223.5.5.5:53, 1.1.1.1:53]
 
+  # Alternative: publish the entire dashboard through Tailscale Funnel. In this
+  # mode omit publicBaseUrl and tls; no custom domain, lego, or DNS key is needed.
+  # mode: tailscale-funnel
+  # host: 127.0.0.1
+  # port: 8787
+  # tailscaleFunnel:
+  #   tailscalePath: /usr/bin/tailscale
+  #   publicPort: 443
+  #   stopOnExit: true
+  #   publicBaseUrl: https://your-node.your-tailnet.ts.net # optional; auto-detected from `tailscale status --json`
+
 customMcpServers:
+   # Zoho Desk MCP must contain getOrganizations, searchSolutions, getArticle,
+   # searchContacts, createContact, searchTickets, createTicket, and the
+   # setup-only getDepartments tool. Do not add article write/delete tools.
+   # Keep disabled until the target Desk organization grants authorization.
+   # - id: zoho-desk
+   #   name: ZohoDesk
+   #   url: https://your-desk-server.zohomcp.com/mcp/your-id/message
+   #   transport: streamable-http
+   #   auth: { type: oauth }
+   #   providerConsoleUrl: https://mcp.zoho.com/mcp-client#/mcp-client/server
+   #   enabled: false
+
    # OAuth MCP server (authorization is initiated from the admin dashboard)
    - id: zoho-crm
      name: ZohoCRM

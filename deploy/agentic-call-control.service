@@ -1,0 +1,18 @@
+[Unit]
+Description=Agentic Call Control - Alibaba Qwen Realtime
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/agentic-call-control/examples/alibaba-qwen-realtime
+Environment=HOME=/root
+Environment=NODE_ENV=production
+UMask=0077
+ExecStart=/usr/local/bin/yarn start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

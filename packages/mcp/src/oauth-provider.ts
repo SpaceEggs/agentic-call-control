@@ -145,12 +145,16 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
     async revokeTokens(): Promise<boolean> {
         const tokens = this.stateData.tokens;
         const authorizationServer = this.stateData.authorizationServer;
+        this.clearAuthorization();
         if (!tokens || !authorizationServer) return false;
 
         let endpoint: string | undefined;
         try {
             const metadataUrl = new URL('/.well-known/oauth-authorization-server', authorizationServer);
-            const response = await fetch(metadataUrl, { headers: { Accept: 'application/json' } });
+            const response = await fetch(metadataUrl, {
+                headers: { Accept: 'application/json' },
+                signal: AbortSignal.timeout(5_000),
+            });
             if (response.ok) {
                 const metadata = await response.json() as { revocation_endpoint?: string };
                 endpoint = metadata.revocation_endpoint;
@@ -171,14 +175,15 @@ export class PersistentOAuthProvider implements OAuthClientProvider {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body,
+                signal: AbortSignal.timeout(5_000),
             });
             return response.ok;
         };
 
-        let revoked = false;
-        if (tokens.refresh_token) revoked = await revoke(tokens.refresh_token, 'refresh_token') || revoked;
-        if (tokens.access_token) revoked = await revoke(tokens.access_token, 'access_token') || revoked;
-        return revoked;
+        const requests: Promise<boolean>[] = [];
+        if (tokens.refresh_token) requests.push(revoke(tokens.refresh_token, 'refresh_token'));
+        if (tokens.access_token) requests.push(revoke(tokens.access_token, 'access_token'));
+        return (await Promise.all(requests)).some(Boolean);
     }
 }
 

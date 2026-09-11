@@ -1,22 +1,33 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { createServer, type Server as HttpsServer } from 'node:https';
+import {
+    createServer as createHttpServer,
+    type IncomingMessage,
+    type Server as HttpServer,
+    type ServerResponse,
+} from 'node:http';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
+import type { AddressInfo } from 'node:net';
 import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { CustomMcpServerConfig, McpRuntimeManager } from '@3cx-examples/mcp';
 import type { AdminConfig } from '../app-config.ts';
 import type { AdminMcpServerInput, AdminConfigStore } from './config-store.ts';
 import type { AdminLogHub } from './log-hub.ts';
-import type { CertificateManager } from './certificate-manager.ts';
+import type { CertificateManager, CertificateStatus } from './certificate-manager.ts';
 
 interface AdminServerDeps {
     config: AdminConfig;
+    publicBaseUrl: string;
     configStore: AdminConfigStore;
     mcpRuntime: McpRuntimeManager;
-    certificateManager: CertificateManager;
+    certificateManager?: CertificateManager;
     logHub: AdminLogHub;
     getActiveCallCount: () => number;
+}
+
+export interface AdminServerHandle {
+    localOrigin: string;
 }
 
 const webRoot = fileURLToPath(new URL('../../web/admin', import.meta.url));
@@ -66,7 +77,6 @@ function publicServer(config: CustomMcpServerConfig, state: ReturnType<McpRuntim
         providerConsoleUrl: config.providerConsoleUrl,
         healthCheck: config.healthCheck,
         status: state,
-        mcpRemoteOAuthLocalOnly: config.transport === 'mcp-remote' && config.auth?.type === 'oauth',
         upstreamAuthorization: config.name.toLowerCase().includes('zoho')
             ? 'Zoho Authorization via Connection must be managed by a Zoho Super Admin.'
             : undefined,
@@ -76,37 +86,62 @@ function publicServer(config: CustomMcpServerConfig, state: ReturnType<McpRuntim
 export class AdminServer {
     private readonly csrf = randomBytes(32).toString('hex');
     private readonly expectedUrl: URL;
-    private server: HttpsServer | undefined;
+    private server: HttpServer | HttpsServer | undefined;
     private readonly deps: AdminServerDeps;
 
     constructor(deps: AdminServerDeps) {
         this.deps = deps;
-        this.expectedUrl = new URL(deps.config.publicBaseUrl);
+        this.expectedUrl = new URL(deps.publicBaseUrl);
         if (this.expectedUrl.protocol !== 'https:') throw new Error('admin.publicBaseUrl must use https');
+        if (!deps.certificateManager && deps.config.host && deps.config.host !== '127.0.0.1') {
+            throw new Error('Tailscale Funnel admin host must be 127.0.0.1');
+        }
     }
 
-    async start(): Promise<void> {
-        const server = createServer(this.deps.certificateManager.tlsOptions(), (req, res) => {
+    async start(): Promise<AdminServerHandle> {
+        const handler = (req: IncomingMessage, res: ServerResponse): void => {
             void this.handle(req, res).catch((error) => {
                 console.error('[Admin] request failed:', messageOf(error));
                 if (!res.headersSent) json(res, 500, { error: messageOf(error) });
                 else res.end();
             });
-        });
+        };
+        const certificateManager = this.deps.certificateManager;
+        const server = certificateManager
+            ? createHttpsServer(certificateManager.tlsOptions(), handler)
+            : createHttpServer(handler);
         this.server = server;
-        this.deps.certificateManager.attach(server);
+        if (certificateManager) certificateManager.attach(server as HttpsServer);
+        const host = this.deps.config.host ?? (certificateManager ? '0.0.0.0' : '127.0.0.1');
+        const port = this.deps.config.port ?? (certificateManager ? 8443 : 8787);
         await new Promise<void>((resolveReady, rejectReady) => {
             server.once('error', rejectReady);
-            server.listen(this.deps.config.port ?? 8443, this.deps.config.host ?? '0.0.0.0', () => resolveReady());
+            server.listen(port, host, () => resolveReady());
         });
-        this.deps.certificateManager.startScheduler();
-        console.log(`[Admin] dashboard ready at ${this.deps.config.publicBaseUrl}`);
+        certificateManager?.startScheduler();
+        const address = server.address() as AddressInfo;
+        const localOrigin = `${certificateManager ? 'https' : 'http'}://127.0.0.1:${address.port}`;
+        console.log(`[Admin] dashboard ready at ${this.expectedUrl.origin}`);
+        return { localOrigin };
     }
 
     close(): void {
-        this.deps.certificateManager.stopScheduler();
+        this.deps.certificateManager?.stopScheduler();
         this.server?.close();
         this.server = undefined;
+    }
+
+    private certificateStatus(): Promise<CertificateStatus> {
+        if (this.deps.certificateManager) return this.deps.certificateManager.status();
+        return Promise.resolve({
+            managedBy: 'tailscale',
+            available: true,
+            domain: this.expectedUrl.hostname,
+            issuer: 'Tailscale Funnel',
+            legoAvailable: false,
+            credentialsConfigured: false,
+            busy: false,
+        });
     }
 
     private headers(res: ServerResponse): void {
@@ -143,7 +178,9 @@ export class AdminServer {
                 return;
             }
             try {
-                await this.deps.mcpRuntime.finishOAuth(code, state);
+                const id = await this.deps.mcpRuntime.finishOAuth(code, state);
+                const configs = this.deps.configStore.setServerEnabled(id, true);
+                await this.deps.mcpRuntime.setConfigs(configs);
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                 res.end('<h1>授权完成</h1><p>可以关闭此窗口并返回管理页。</p>');
             } catch (callbackError) {
@@ -169,7 +206,7 @@ export class AdminServer {
                 csrfToken: this.csrf,
                 activeCalls: this.deps.getActiveCallCount(),
                 mcp: this.deps.mcpRuntime.getStates(),
-                certificate: await this.deps.certificateManager.status(),
+                certificate: await this.certificateStatus(),
             });
             return;
         }
@@ -223,13 +260,21 @@ export class AdminServer {
         }
         if (req.method === 'POST' && path === '/api/mcp/oauth/authorize') {
             const body = await readJson(req);
-            const result = await this.deps.mcpRuntime.beginOAuth(String(body.id ?? ''));
+            const id = String(body.id ?? '');
+            const result = await this.deps.mcpRuntime.beginOAuth(id);
+            if ('alreadyAuthorized' in result) {
+                const configs = this.deps.configStore.setServerEnabled(id, true);
+                await this.deps.mcpRuntime.setConfigs(configs);
+            }
             json(res, 200, result);
             return;
         }
         if (req.method === 'POST' && path === '/api/mcp/oauth/deauthorize') {
             const body = await readJson(req);
-            const result = await this.deps.mcpRuntime.deauthorize(String(body.id ?? ''));
+            const id = String(body.id ?? '');
+            const configs = this.deps.configStore.setServerEnabled(id, false);
+            await this.deps.mcpRuntime.setConfigs(configs);
+            const result = await this.deps.mcpRuntime.deauthorize(id);
             json(res, 200, { ok: true, ...result });
             return;
         }
@@ -259,16 +304,24 @@ export class AdminServer {
             return;
         }
         if (req.method === 'GET' && path === '/api/certificates/status') {
-            json(res, 200, await this.deps.certificateManager.status());
+            json(res, 200, await this.certificateStatus());
             return;
         }
         if (req.method === 'POST' && path === '/api/certificates/issue') {
+            if (!this.deps.certificateManager) {
+                json(res, 409, { error: 'HTTPS is managed by Tailscale Funnel' });
+                return;
+            }
             const body = await readJson(req);
             const output = await this.deps.certificateManager.issue(body.environment === 'staging');
             json(res, 200, { ok: true, output: output.slice(-4_000) });
             return;
         }
         if (req.method === 'POST' && path === '/api/certificates/renew') {
+            if (!this.deps.certificateManager) {
+                json(res, 409, { error: 'HTTPS is managed by Tailscale Funnel' });
+                return;
+            }
             const output = await this.deps.certificateManager.renew();
             json(res, 200, { ok: true, output: output.slice(-4_000) });
             return;
@@ -284,14 +337,14 @@ export class AdminServer {
             send('ready', { ok: true });
             const onLog = (entry: unknown) => send('log', entry);
             const onMcp = (states: unknown) => send('mcp', states);
-            const onCert = () => void this.deps.certificateManager.status().then((status) => send('certificate', status));
+            const onCert = () => void this.certificateStatus().then((status) => send('certificate', status));
             this.deps.logHub.on('entry', onLog);
             this.deps.mcpRuntime.on('changed', onMcp);
-            this.deps.certificateManager.on('changed', onCert);
+            this.deps.certificateManager?.on('changed', onCert);
             req.once('close', () => {
                 this.deps.logHub.off('entry', onLog);
                 this.deps.mcpRuntime.off('changed', onMcp);
-                this.deps.certificateManager.off('changed', onCert);
+                this.deps.certificateManager?.off('changed', onCert);
             });
             return;
         }

@@ -24,25 +24,67 @@ export interface AppConfig {
    * See `@3cx-examples/mcp`. Omit or leave empty to use only 3CX MCP.
    */
   customMcpServers?: CustomMcpServerConfig[];
+  /** Optional Zoho Desk knowledge-base and support-ticket workflow. */
+  desk?: DeskConfig;
   admin?: AdminConfig;
+}
+
+export interface DeskToolNames {
+  getOrganizations: string;
+  searchSolutions: string;
+  getArticle: string;
+  searchContacts: string;
+  createContact: string;
+  searchTickets: string;
+  createTicket: string;
+  getDepartments: string;
+}
+
+export interface DeskConfig {
+  /** Desk tools stay completely hidden when false or omitted. */
+  enabled?: boolean;
+  /** Fixed Zoho Desk organization ID returned by getOrganizations. */
+  orgId?: string;
+  /** Fixed department selected after the target Desk organization is authorized. */
+  departmentId?: string;
+  /** Human-readable audit label; never used to select a department automatically. */
+  departmentName?: string;
+  channel?: string;
+  priority?: string;
+  /** Window used to suppress duplicate open tickets for the same caller and issue. */
+  duplicateWindowHours?: number;
+  /** Exact names returned by MCP tools/list; override these after authorization if needed. */
+  toolNames?: Partial<DeskToolNames>;
 }
 
 export interface AdminConfig {
   enabled?: boolean;
+  /** Direct HTTPS with lego, or public HTTPS terminated by Tailscale Funnel. Default: https. */
+  mode?: 'https' | 'tailscale-funnel';
   host?: string;
   port?: number;
   /** Browser-visible HTTPS origin, for example https://qwen-admin.example.com:8443. */
-  publicBaseUrl: string;
+  publicBaseUrl?: string;
   stateFile?: string;
-  tls: {
-    domain: string;
-    email: string;
-    legoPath?: string;
-    legoVersion?: string;
-    dataDir?: string;
-    renewCheckHours?: number;
-    dnsResolvers?: string[];
-  };
+  tailscaleFunnel?: TailscaleFunnelConfig;
+  tls?: AdminTlsConfig;
+}
+
+export interface AdminTlsConfig {
+  domain: string;
+  email: string;
+  legoPath?: string;
+  legoVersion?: string;
+  dataDir?: string;
+  renewCheckHours?: number;
+  dnsResolvers?: string[];
+}
+
+export interface TailscaleFunnelConfig {
+  tailscalePath?: string;
+  publicBaseUrl?: string;
+  publicPort?: 443 | 8443 | 10000;
+  stopOnExit?: boolean;
 }
 
 import { readFileSync } from 'fs';

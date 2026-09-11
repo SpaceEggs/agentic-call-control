@@ -41,6 +41,20 @@ interface PendingFunctionCall {
     arguments: string;
 }
 
+function isDeskSemanticTool(name: string): boolean {
+    return name === 'desk_search_knowledge' || name === 'desk_create_support_ticket';
+}
+
+function deskSafeLogResult(name: string, output: string): string {
+    if (!isDeskSemanticTool(name)) return output;
+    try {
+        const status = String((JSON.parse(output) as { status?: unknown }).status ?? 'unknown');
+        return `[Desk result redacted; status=${status}]`;
+    } catch {
+        return '[Desk result redacted]';
+    }
+}
+
 /**
  * Upsample PCM 16-bit mono 8 kHz → 16 kHz (duplicate each sample).
  * DashScope Realtime expects 16 kHz; 3CX provides 8 kHz.
@@ -268,8 +282,9 @@ export function createQwenRealtimeBridge(
                 const toolName = event.name as string;
                 const args = event.arguments as string;
                 pendingCalls.push({ callId: callIdArg, name: toolName, arguments: args });
-                log.toolCalled(toolName, callIdArg, args);
-                console.log(chalk.cyan(`[Tool] ${toolName}(${args.substring(0, 200)})`));
+                const loggedArgs = isDeskSemanticTool(toolName) ? '[Desk arguments redacted]' : args;
+                log.toolCalled(toolName, callIdArg, loggedArgs);
+                console.log(chalk.cyan(`[Tool] ${toolName}(${loggedArgs.substring(0, 200)})`));
                 break;
             }
 
@@ -344,7 +359,7 @@ export function createQwenRealtimeBridge(
                         output: result.content,
                     },
                 });
-                log.toolResult(call.name, call.callId, result.content);
+                log.toolResult(call.name, call.callId, deskSafeLogResult(call.name, result.content));
                 for (const req of detectRequestedTools(result.content)) {
                     log.ruleInjected(req.tool, call.callId, result.content);
                 }

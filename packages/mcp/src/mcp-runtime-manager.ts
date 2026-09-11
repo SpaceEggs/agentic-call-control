@@ -139,12 +139,9 @@ export class McpRuntimeManager extends EventEmitter {
         await this.replaceGeneration(this.configs);
     }
 
-    async beginOAuth(id: string): Promise<{ authorizationUrl: string }> {
+    async beginOAuth(id: string): Promise<{ authorizationUrl: string } | { alreadyAuthorized: true }> {
         const config = this.configs.find((entry) => idOf(entry) === id);
         if (!config) throw new Error('Unknown MCP server');
-        if (config.transport === 'mcp-remote') {
-            throw new Error('mcp-remote OAuth must be completed locally on the server');
-        }
         if (config.auth?.type !== 'oauth') throw new Error('This MCP server does not use OAuth');
 
         this.pendingOAuth.get(id)?.connection.disconnect();
@@ -152,8 +149,7 @@ export class McpRuntimeManager extends EventEmitter {
         try {
             await connection.connect({ deferOAuth: true });
             connection.disconnect();
-            await this.replaceGeneration(this.configs);
-            throw new Error('MCP server is already authorized');
+            return { alreadyAuthorized: true };
         } catch (error) {
             if (!(error instanceof McpAuthorizationRequiredError)) {
                 connection.disconnect();
@@ -190,17 +186,11 @@ export class McpRuntimeManager extends EventEmitter {
     async deauthorize(id: string): Promise<{ revoked: boolean }> {
         const config = this.configs.find((entry) => idOf(entry) === id);
         if (!config) throw new Error('Unknown MCP server');
-        let revoked = false;
         const connections = [this.generation, ...this.retired]
             .map((generation) => generation.connections.get(id))
             .filter((connection): connection is CustomMcpConnection => Boolean(connection));
         if (connections.length === 0) connections.push(new CustomMcpConnection(config));
-        for (const connection of connections) {
-            const result = await connection.deauthorize();
-            revoked = result.revoked || revoked;
-        }
-        this.pendingOAuth.get(id)?.connection.disconnect();
-        this.pendingOAuth.delete(id);
+        this.disconnectServerEverywhere(id);
         const state = this.ensureState(config);
         state.status = 'auth_required';
         state.toolCount = 0;
@@ -208,8 +198,9 @@ export class McpRuntimeManager extends EventEmitter {
         state.authorizationUrlReady = false;
         state.lastError = undefined;
         this.changed();
+        const results = await Promise.all(connections.map((connection) => connection.deauthorize()));
         await this.replaceGeneration(this.configs);
-        return { revoked };
+        return { revoked: results.some((result) => result.revoked) };
     }
 
     async test(id: string): Promise<string> {

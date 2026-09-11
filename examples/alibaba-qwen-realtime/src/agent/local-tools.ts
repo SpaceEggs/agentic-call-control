@@ -1,5 +1,6 @@
 import type { ChatCompletionFunctionTool } from 'openai/resources/chat/completions';
 import type { AgentProfile } from './agent-profiles.ts';
+import { TOOL_DESK_CREATE_SUPPORT_TICKET, TOOL_DESK_SEARCH_KNOWLEDGE } from './desk-tools.ts';
 
 export const TOOL_SAVE_CALLER_NAME: ChatCompletionFunctionTool = {
     type: 'function',
@@ -124,7 +125,11 @@ export const TOOL_CRM_GET_OWNER_REVENUE: ChatCompletionFunctionTool = {
     },
 };
 
-export function buildLocalTools(opts?: { callScreening?: boolean; crmQueries?: boolean }): ChatCompletionFunctionTool[] {
+export function buildLocalTools(opts?: {
+    callScreening?: boolean;
+    crmQueries?: boolean;
+    deskSupport?: boolean;
+}): ChatCompletionFunctionTool[] {
     const tools: ChatCompletionFunctionTool[] = [
         TOOL_TRANSFER_CALL,
         TOOL_DROP_CALL,
@@ -135,6 +140,9 @@ export function buildLocalTools(opts?: { callScreening?: boolean; crmQueries?: b
     }
     if (opts?.crmQueries) {
         tools.push(TOOL_CRM_LIST_SALESPEOPLE, TOOL_CRM_LIST_OWNER_DEALS, TOOL_CRM_GET_OWNER_REVENUE);
+    }
+    if (opts?.deskSupport) {
+        tools.push(TOOL_DESK_SEARCH_KNOWLEDGE, TOOL_DESK_CREATE_SUPPORT_TICKET);
     }
     return tools;
 }

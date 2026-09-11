@@ -67,6 +67,9 @@ export function renderPrompt(
     const featureFlags: Record<string, boolean> = {};
     if (profile.callScreening) featureFlags.call_screening = true;
     if (profile.checkAvailability) featureFlags.check_availability = true;
+    if (tools?.some((tool) => tool.function.name === 'desk_search_knowledge')) {
+        featureFlags.desk_support = true;
+    }
 
     const policyLines: string[] = [];
     if (profile.policies) {
