@@ -14,6 +14,7 @@ import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { ClientCredentialsProvider } from '@modelcontextprotocol/sdk/client/auth-extensions.js';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { OAuthError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import chalk from 'chalk';
 import type { McpToolDefinition } from './mcp-client.ts';
 import { coerceToolArguments } from './tool-schema.ts';
@@ -87,6 +88,11 @@ function createAuthProvider(
     });
 }
 
+// Tencent Docs currently declares manage.search_file.modify_time as an integer
+// but returns it as a string. Bypass only the SDK's per-tool outputSchema check
+// for this read-only search tool while retaining the generic result validation.
+const OUTPUT_SCHEMA_BYPASS_TOOLS = new Set(['manage.search_file']);
+
 export class CustomMcpConnection {
     private client: Client | null = null;
     private transport: StreamableHTTPClientTransport | null = null;
@@ -157,7 +163,6 @@ export class CustomMcpConnection {
                 ...(Object.keys(headers).length > 0 ? { requestInit: { headers } } : {}),
             },
         );
-
         this.client = new Client(
             { name: 'agentic-call-control', version: '1.0.0' },
             { capabilities: {} },
@@ -236,7 +241,12 @@ export class CustomMcpConnection {
 
     private async invokeTool(name: string, args: Record<string, unknown>): Promise<string> {
         if (!this.client) return MCP_UNAVAILABLE(name);
-        const result = await this.client.callTool({ name, arguments: args });
+        const result = OUTPUT_SCHEMA_BYPASS_TOOLS.has(name)
+            ? await this.client.request(
+                { method: 'tools/call', params: { name, arguments: args } },
+                CallToolResultSchema,
+            )
+            : await this.client.callTool({ name, arguments: args });
         if (result.isError) {
             throw new Error(`Custom MCP tool "${name}" error: ${this.flattenToolContent(result.content)}`);
         }

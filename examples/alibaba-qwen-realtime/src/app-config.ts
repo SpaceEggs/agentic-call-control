@@ -37,6 +37,9 @@ export const CONFIG_PATH = resolve(process.cwd(), 'config.yaml');
 function loadConfig(): AppConfig {
     const raw = readFileSync(CONFIG_PATH, 'utf-8');
     const cfg = load(raw) as AppConfig;
+    // Numeric-looking RoutePoint DNs are parsed as numbers by YAML unless quoted.
+    // Normalize here because the SDK compares event DN keys as strings.
+    cfg.appId = String(cfg.appId);
     cfg.dashscopeBaseUrl ??= DASHSCOPE_DEFAULT_BASE;
     return cfg;
 }

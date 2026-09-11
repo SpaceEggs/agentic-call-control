@@ -160,7 +160,11 @@ function blockRouteIfAvailabilityUnknown(deps: ToolDeps, destination: string, ac
 
 function createMcpHandler(toolName: string): ToolHandler {
     return async (args, deps) => {
-        if (!deps.mcpManager) return { content: `MCP not available for ${toolName}.` };
+        if (!deps.mcpManager) return {
+            content: `TOOL_FAILURE: ${toolName} is unavailable. Do not infer or invent any result.`,
+            failed: true,
+            failureReply: '抱歉，系统暂时无法完成查询，请稍后再试。',
+        };
 
         const mcpArgs = toolName === 'list_phonebook'
             ? {
@@ -190,7 +194,11 @@ function createMcpHandler(toolName: string): ToolHandler {
         } catch (err) {
             const msg = (err as Error).message ?? String(err);
             console.error(chalk.red(`[MCP] tool "${toolName}" error:`), msg);
-            return { content: `Error calling ${toolName}: ${msg}` };
+            return {
+                content: `TOOL_FAILURE: ${toolName} failed. No result was retrieved. Do not infer or invent any data. Error: ${msg}`,
+                failed: true,
+                failureReply: '抱歉，系统暂时无法完成查询，请稍后再试。',
+            };
         }
     };
 }
@@ -198,7 +206,11 @@ function createMcpHandler(toolName: string): ToolHandler {
 function createCustomMcpHandler(toolName: string): ToolHandler {
     return async (args, deps) => {
         if (!deps.customMcpRouter?.has(toolName)) {
-            return { content: `Custom MCP tool "${toolName}" not available.` };
+            return {
+                content: `TOOL_FAILURE: ${toolName} is unavailable. Do not infer or invent any result.`,
+                failed: true,
+                failureReply: '抱歉，系统暂时无法完成查询，请稍后再试。',
+            };
         }
         console.log(chalk.cyan(`[CustomMCP] calling "${toolName}"`, JSON.stringify(args)));
         try {
@@ -208,10 +220,223 @@ function createCustomMcpHandler(toolName: string): ToolHandler {
         } catch (err) {
             const msg = (err as Error).message ?? String(err);
             console.error(chalk.red(`[CustomMCP] "${toolName}" error:`), msg);
-            return { content: `Error calling ${toolName}: ${msg}` };
+            const isZohoCrm = toolName.startsWith('ZohoCRM_');
+            return {
+                content: `TOOL_FAILURE: ${toolName} failed. No CRM data was retrieved. Do not infer, guess, or invent names, records, counts, amounts, or statuses. Error: ${msg}`,
+                failed: true,
+                failureReply: isZohoCrm
+                    ? '抱歉，CRM系统暂时无法查询，请稍后再试。'
+                    : '抱歉，系统暂时无法完成查询，请稍后再试。',
+            };
         }
     };
 }
+
+interface ZohoUser {
+    id?: unknown;
+    full_name?: unknown;
+    first_name?: unknown;
+    last_name?: unknown;
+    role?: { name?: unknown };
+    profile?: { name?: unknown };
+    Currency?: unknown;
+}
+
+interface ZohoDeal {
+    Deal_Name?: unknown;
+    Stage?: unknown;
+    Amount?: unknown;
+    Closing_Date?: unknown;
+    Account_Name?: { name?: unknown } | unknown;
+}
+
+const CRM_FAILURE_REPLY = '抱歉，CRM系统暂时无法查询，请稍后再试。';
+
+function crmFailure(message: string): ToolResult {
+    return {
+        content: `TOOL_FAILURE: ${message} No CRM data was retrieved. Do not infer or invent any result.`,
+        failed: true,
+        failureReply: CRM_FAILURE_REPLY,
+    };
+}
+
+function parseMcpJson(raw: string): unknown {
+    let value: unknown = raw.trim();
+    for (let depth = 0; depth < 4 && typeof value === 'string'; depth++) {
+        try {
+            value = JSON.parse(value);
+        } catch {
+            break;
+        }
+    }
+    return value;
+}
+
+function findArray(value: unknown, key: string): unknown[] | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record[key])) return record[key];
+    for (const child of Object.values(record)) {
+        const found = findArray(child, key);
+        if (found) return found;
+    }
+    return undefined;
+}
+
+async function getActiveCrmUsers(deps: ToolDeps): Promise<ZohoUser[]> {
+    if (!deps.customMcpRouter?.has('ZohoCRM_getUsers')) {
+        throw new Error('ZohoCRM_getUsers is unavailable.');
+    }
+    const allUsers: ZohoUser[] = [];
+    for (let page = 1; page <= 20; page++) {
+        const raw = await deps.customMcpRouter.callTool('ZohoCRM_getUsers', {
+            query_params: { type: 'ActiveUsers', page, per_page: 200 },
+        });
+        const users = findArray(parseMcpJson(raw), 'users');
+        if (!users) throw new Error('ZohoCRM_getUsers returned no usable users array.');
+        allUsers.push(...users as ZohoUser[]);
+        if (users.length < 200) return allUsers;
+    }
+    throw new Error('ZohoCRM_getUsers exceeded the safe pagination limit.');
+}
+
+function displayUserName(user: ZohoUser): string {
+    const fullName = String(user.full_name ?? '').trim();
+    if (fullName) return fullName;
+    return [user.first_name, user.last_name].map((part) => String(part ?? '').trim()).filter(Boolean).join(' ');
+}
+
+function findOwner(users: ZohoUser[], requestedName: string): ZohoUser[] {
+    const needle = requestedName.trim().toLocaleLowerCase();
+    if (!needle) return [];
+    const exact = users.filter((user) => displayUserName(user).toLocaleLowerCase() === needle);
+    if (exact.length > 0) return exact;
+    return users.filter((user) => displayUserName(user).toLocaleLowerCase().includes(needle));
+}
+
+async function queryOwnerDeals(deps: ToolDeps, ownerId: string, extraCriteria = ''): Promise<ZohoDeal[]> {
+    if (!deps.customMcpRouter?.has('ZohoCRM_executeCOQLQuery')) {
+        throw new Error('ZohoCRM_executeCOQLQuery is unavailable.');
+    }
+    if (!/^\d+$/.test(ownerId)) throw new Error('CRM returned an invalid owner ID.');
+    const where = `Owner = '${ownerId}'${extraCriteria}`;
+    const allDeals: ZohoDeal[] = [];
+    for (let offset = 0; offset < 100_000; offset += 2000) {
+        const selectQuery = `select Deal_Name, Stage, Amount, Closing_Date, Account_Name, Owner from Deals where (${where}) order by Closing_Date desc limit ${offset}, 2000`;
+        const raw = await deps.customMcpRouter.callTool('ZohoCRM_executeCOQLQuery', {
+            body: { select_query: selectQuery },
+        });
+        const deals = findArray(parseMcpJson(raw), 'data');
+        if (!deals) throw new Error('ZohoCRM_executeCOQLQuery returned no usable data array.');
+        allDeals.push(...deals as ZohoDeal[]);
+        if (deals.length < 2000) return allDeals;
+    }
+    throw new Error('Zoho CRM deal query exceeded the safe pagination limit.');
+}
+
+async function resolveUniqueOwner(deps: ToolDeps, requestedName: string): Promise<ZohoUser | ToolResult> {
+    const users = await getActiveCrmUsers(deps);
+    const matches = findOwner(users, requestedName);
+    if (matches.length === 0) {
+        return { content: JSON.stringify({ status: 'not_found', message: `CRM 中没有找到名为 ${requestedName} 的在职用户。` }) };
+    }
+    if (matches.length > 1) {
+        return {
+            content: JSON.stringify({
+                status: 'ambiguous',
+                message: '匹配到多名用户，请让来电者提供完整姓名。',
+                matches: matches.map(displayUserName),
+            }),
+        };
+    }
+    return matches[0];
+}
+
+function rollingMonthDates(now = new Date()): { start: string; end: string } {
+    const dateParts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now);
+    const get = (type: Intl.DateTimeFormatPartTypes) => Number(dateParts.find((part) => part.type === type)?.value);
+    const year = get('year');
+    const month = get('month');
+    const day = get('day');
+    const previousMonth = month === 1 ? 12 : month - 1;
+    const previousYear = month === 1 ? year - 1 : year;
+    const daysInPreviousMonth = new Date(Date.UTC(previousYear, previousMonth, 0)).getUTCDate();
+    const startDay = Math.min(day, daysInPreviousMonth);
+    const iso = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    return { start: iso(previousYear, previousMonth, startDay), end: iso(year, month, day) };
+}
+
+const handleCrmListSalespeople: ToolHandler = async (_args, deps) => {
+    try {
+        const users = await getActiveCrmUsers(deps);
+        const salespeople = users.filter((user) => {
+            const role = String(user.role?.name ?? '');
+            const profile = String(user.profile?.name ?? '');
+            return /销售|sales/i.test(`${role} ${profile}`);
+        }).map((user) => ({
+            name: displayUserName(user),
+            role: String(user.role?.name ?? ''),
+            profile: String(user.profile?.name ?? ''),
+        }));
+        return { content: JSON.stringify({ status: 'success', count: salespeople.length, salespeople }) };
+    } catch (error) {
+        return crmFailure((error as Error).message);
+    }
+};
+
+const handleCrmListOwnerDeals: ToolHandler = async (args, deps) => {
+    const ownerName = String(args.owner_name ?? '').trim();
+    if (!ownerName) return { content: JSON.stringify({ status: 'missing_owner_name', message: '请询问销售人员姓名。' }) };
+    try {
+        const owner = await resolveUniqueOwner(deps, ownerName);
+        if ('content' in owner) return owner;
+        const deals = await queryOwnerDeals(deps, String(owner.id ?? ''));
+        return {
+            content: JSON.stringify({
+                status: 'success', owner: displayUserName(owner), count: deals.length,
+                deals: deals.map((deal) => ({
+                    name: String(deal.Deal_Name ?? ''), stage: String(deal.Stage ?? ''),
+                    amount: deal.Amount ?? null, closing_date: deal.Closing_Date ?? null,
+                    account: typeof deal.Account_Name === 'object' && deal.Account_Name
+                        ? String((deal.Account_Name as { name?: unknown }).name ?? '') : '',
+                })),
+            }),
+        };
+    } catch (error) {
+        return crmFailure((error as Error).message);
+    }
+};
+
+const handleCrmOwnerRevenue: ToolHandler = async (args, deps) => {
+    const ownerName = String(args.owner_name ?? '').trim();
+    if (!ownerName) return { content: JSON.stringify({ status: 'missing_owner_name', message: '请询问销售人员姓名。' }) };
+    try {
+        const owner = await resolveUniqueOwner(deps, ownerName);
+        if ('content' in owner) return owner;
+        const range = rollingMonthDates();
+        const deals = await queryOwnerDeals(
+            deps,
+            String(owner.id ?? ''),
+            ` and Closing_Date between '${range.start}' and '${range.end}'`,
+        );
+        const wonDeals = deals.filter((deal) => /^(closed won|closed_won|成交|已成交|赢单|成功成交)$/i.test(String(deal.Stage ?? '').trim()));
+        const amount = wonDeals.reduce((sum, deal) => {
+            const value = typeof deal.Amount === 'number' ? deal.Amount : Number(String(deal.Amount ?? '').replace(/,/g, ''));
+            return Number.isFinite(value) ? sum + value : sum;
+        }, 0);
+        return {
+            content: JSON.stringify({
+                status: 'success', owner: displayUserName(owner), period: range,
+                closed_won_count: wonDeals.length, total_amount: amount,
+                currency: owner.Currency ?? null,
+            }),
+        };
+    } catch (error) {
+        return crmFailure((error as Error).message);
+    }
+};
 
 function registerBuiltinTools(registry: ToolRegistry): void {
     registry.register('transfer_call', handleTransferCall);
@@ -220,6 +445,9 @@ function registerBuiltinTools(registry: ToolRegistry): void {
     registry.register('save_caller_name', handleSaveCallerName);
     registry.register('save_caller_company', handleSaveCallerCompany);
     registry.register('save_caller_reason', handleSaveCallerReason);
+    registry.register('crm_list_salespeople', handleCrmListSalespeople);
+    registry.register('crm_list_owner_deals', handleCrmListOwnerDeals);
+    registry.register('crm_get_owner_closed_won_revenue_last_month', handleCrmOwnerRevenue);
 }
 
 export function createToolExecutor(deps: ToolExecutorDeps) {
