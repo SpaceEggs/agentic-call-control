@@ -133,6 +133,7 @@ export function createSeeduplexRealtimeBridge(
     let outputEpoch = 0;
     /** Response id cancelled by the last barge-in (empty = none). */
     let cancelledResponseId = '';
+    const cancelledResponseIds = new Set<string>();
 
     let routeState: RouteState = 'idle';
     let toolCallStreaming = false;
@@ -332,6 +333,7 @@ export function createSeeduplexRealtimeBridge(
     const performLocalBargeIn = (reason: string) => {
         outputEpoch += 1;
         cancelledResponseId = currentResponseId;
+        if (currentResponseId) cancelledResponseIds.add(currentResponseId);
         downsampler.reset();
         agentTranscriptBuf = '';
         callerTranscriptBuf = '';
@@ -376,21 +378,22 @@ export function createSeeduplexRealtimeBridge(
                 break;
 
             case EVENT.outputAudioStarted:
+                if (eventResponseId && cancelledResponseIds.has(eventResponseId)) break;
                 if (eventResponseId) {
                     currentResponseId = eventResponseId;
-                    cancelledResponseId = '';
                     log.responseCreated(currentResponseId);
                 }
                 responseActive = true;
                 break;
 
             case EVENT.outputAudioDelta: {
-                if (eventResponseId && eventResponseId !== cancelledResponseId) {
+                if (eventResponseId && !cancelledResponseIds.has(eventResponseId)) {
                     currentResponseId = eventResponseId;
                 }
 
                 // Drop deltas belonging to a response cancelled by barge-in.
-                if (eventResponseId && cancelledResponseId && eventResponseId === cancelledResponseId) {
+                if ((eventResponseId && cancelledResponseIds.has(eventResponseId))
+                    || (!eventResponseId && cancelledResponseIds.has(currentResponseId))) {
                     log.info(`LATE_AUDIO_DROPPED | response_id=${eventResponseId} epoch=${outputEpoch}`);
                     break;
                 }
@@ -535,7 +538,14 @@ export function createSeeduplexRealtimeBridge(
 
     const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
         return new Promise<T>((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+            const timer = setTimeout(() => {
+                // The executor cannot cancel an outstanding MCP side effect.
+                // End this bridge so neither queued work nor a model retry can
+                // race the unresolved operation. Its outcome remains unknown.
+                log.error(`TOOL_TIMEOUT | ${label} outcome unknown; closing bridge`);
+                stop();
+                reject(new Error(`${label} timed out after ${ms}ms`));
+            }, ms);
             promise.then(
                 (v) => {
                     clearTimeout(timer);

@@ -181,6 +181,36 @@ async function waitUntil(fn: () => boolean, timeoutMs = 500): Promise<void> {
     }
 }
 
+test('tool timeout closes bridge without executing queued calls or late route actions', async (t) => {
+    const mock = await startMockServer();
+    const fake = createFakeParticipant();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let executed = 0;
+    let transfers = 0;
+    fake.setTransferImpl(async () => { transfers += 1; });
+    const bridge = createSeeduplexRealtimeBridge(fake.participant, baseConfig({ wsUrl: mock.url }), async () => {
+        executed += 1;
+        await gate;
+        return { content: 'ok', action: 'transfer', destination: '101' };
+    });
+    t.after(async () => { release(); bridge.stop(); await mock.close(); });
+    await waitUntil(() => mock.received.length > 0);
+    mock.send({ type: EVENT.sessionCreated });
+    await waitUntil(() => bridge.getPhase() === 'ready');
+    mock.send({ type: EVENT.functionCallArgumentsDone, items: [
+        { call_id: 'slow', name: 'transfer_call', arguments: '{}' },
+        { call_id: 'queued', name: 'transfer_call', arguments: '{}' },
+    ] });
+    await waitUntil(() => executed === 1);
+    await waitUntil(() => bridge.getPhase() === 'closed', 32_000);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(executed, 1);
+    assert.equal(transfers, 0);
+    assert.equal(mock.received.filter((message) => message.type === EVENT.conversationItemCreate).length, 0);
+});
+
 test('T02 handshake: official session.create layout and no greeting before ready', async () => {
     const mock = await startMockServer();
     const fake = createFakeParticipant();
@@ -354,6 +384,13 @@ test('barge-in uses clear() not cancel(); next reply still plays', async () => {
     assert.ok(fake.writer.writes.length > 0, 'next reply must play after barge-in');
     assert.ok(writesBefore >= 0);
     assert.equal(fake.writer.cancelled, false);
+
+    const newWrites = fake.writer.writes.length;
+    mock.send({ type: EVENT.outputAudioStarted, response_id: 'r1' });
+    mock.send({ type: EVENT.outputAudioDelta, response_id: 'r1', delta: pcm24.toString('base64') });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(fake.writer.writes.length, newWrites, 'old response must stay cancelled after r2 starts');
+    assert.equal(bridge.getDiagnostics().currentResponseId, 'r2');
 
     bridge.stop();
     assert.equal(fake.writer.cancelCount, 1, 'stop() is the only permanent cancel');

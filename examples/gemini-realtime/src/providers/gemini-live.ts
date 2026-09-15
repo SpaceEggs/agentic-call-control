@@ -223,7 +223,7 @@ export function createGeminiLiveBridge(
             const functionCalls = tc.functionCalls as Record<string, unknown>[] | undefined;
             if (functionCalls) {
                 for (const fc of functionCalls) {
-                    const argsObj = (fc.args as Record<string, unknown>) ?? {};
+                    const argsObj = fc.args as Record<string, unknown>;
                     pendingCalls.push({
                         id: fc.id as string,
                         name: fc.name as string,

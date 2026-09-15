@@ -168,7 +168,9 @@ export function parseFunctionCallItems(event: Record<string, unknown>): ParsedFu
             // Tolerate object arguments even though the official demo emits JSON text.
             out.push({ callId, name, arguments: args as Record<string, unknown> });
         } else {
-            out.push({ callId, name, arguments: '{}' });
+            // Preserve an invalid sentinel for argumentsToJson to reject; never
+            // turn malformed input into executable no-argument tool calls.
+            out.push({ callId, name, arguments: 'null' });
         }
     }
     return out;
