@@ -78,9 +78,9 @@ example README.
 
 ## Live API smoke verification (2026-09-15)
 
-Using an API key supplied out-of-band to the process through non-echoing stdin
-(never written to a file, config, Git object, or log), the official endpoint
-completed these checks with model `1.2.6.0`:
+Using an API key supplied directly to the test process through stdin (never
+written to a file, config, or Git object), the official endpoint completed
+these checks with model `1.2.6.0`:
 
 - `X-Api-Key` only: `session.created`, greeting audio, `response.done`, and
   `session.closed` all received; 113,376 decoded PCM bytes were returned.
