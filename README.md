@@ -2,7 +2,7 @@
 
 This repository shows how to connect **external AI voice agent applications** to **3CX PBX** using the [CallControl API](https://www.3cx.com/docs/call-control-api-endpoints/) and the [CallControl SDK](https://github.com/3cx/call-control-sdk-ts). The agents run entirely outside 3CX — on your own infrastructure, using your own AI provider — and interact with the PBX purely through its API: joining calls, streaming audio in/out, and controlling routing (transfer, voicemail, drop) through tool calls. No 3CX source code or modifications required.
 
-All examples use a **single realtime audio stream** (OpenAI Realtime, Gemini Live, xAI Grok, Alibaba Qwen) — STT, reasoning, and TTS happen inside one continuous bidirectional audio stream with no handoff between stages.
+All examples use a **single realtime audio stream** (OpenAI Realtime, Gemini Live, xAI Grok, Alibaba Qwen, ByteDance Seeduplex) — STT, reasoning, and TTS happen inside one continuous bidirectional audio stream with no handoff between stages.
 
 All examples support the **3CX MCP server** for phonebook lookups and contact management.
 
@@ -84,6 +84,7 @@ yarn start:openai            # OpenAI Realtime API
 yarn start:alibaba-qwen      # Alibaba Qwen Omni Realtime
 yarn start:xai               # xAI Grok Voice Agent
 yarn start:gemini            # Gemini Live API
+yarn start:bytedance-seeduplex  # ByteDance Seeduplex 3.0 duplex
 ```
 
 **Calling the agent:** dial the Service Principal **Client ID** (`appId`) from any 3CX extension, or the assigned **DID** if you configured one.
@@ -94,6 +95,7 @@ Provider-specific config keys and options are documented in each example README:
 - [Alibaba Qwen realtime](./examples/alibaba-qwen-realtime/README.md)
 - [xAI Grok realtime](./examples/xai-realtime/README.md)
 - [Gemini Live realtime](./examples/gemini-realtime/README.md)
+- [ByteDance Seeduplex realtime](./examples/bytedance-seeduplex-realtime/README.md)
 
 ## Choosing an example
 
@@ -103,6 +105,7 @@ Provider-specific config keys and options are documented in each example README:
 | [Gemini Live](./examples/gemini-realtime/README.md) | `yarn start:gemini` | Google ecosystem, multilingual, Live API preview models |
 | [xAI Grok](./examples/xai-realtime/README.md) | `yarn start:xai` | Native 8 kHz audio (no resampling), Grok voice models |
 | [Alibaba Qwen](./examples/alibaba-qwen-realtime/README.md) | `yarn start:alibaba-qwen` | Chinese/English, DashScope region-specific endpoints |
+| [ByteDance Seeduplex](./examples/bytedance-seeduplex-realtime/README.md) | `yarn start:bytedance-seeduplex` | Chinese/English duplex, Volcengine Seeduplex 3.0 |
 
 Each example is a standalone app under `examples/` with the same call flow; only the AI provider bridge differs.
 

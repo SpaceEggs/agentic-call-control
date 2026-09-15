@@ -10,6 +10,7 @@ yarn start:openai            # @3cx-examples/openai-realtime
 yarn start:alibaba-qwen      # @3cx-examples/alibaba-qwen-realtime
 yarn start:xai               # @3cx-examples/xai-realtime
 yarn start:gemini            # @3cx-examples/gemini-realtime
+yarn start:bytedance-seeduplex  # @3cx-examples/bytedance-seeduplex-realtime
 yarn build          # all workspaces
 yarn lint           # all workspaces
 ```
@@ -33,12 +34,13 @@ Per-example (from `examples/<name>/`): `yarn start`, `yarn build`, `yarn lint`.
 
 ## Examples
 
-| Folder                           | Branch source           | Stack                                |
-| -------------------------------- | ----------------------- | ------------------------------------ |
-| `examples/openai-realtime`       | —                       | OpenAI Realtime API WebSocket        |
-| `examples/alibaba-qwen-realtime` | `cloud/qwen-realtime`   | Alibaba DashScope Qwen Omni Realtime |
-| `examples/xai-realtime`          | `cloud/xai-realtime`    | xAI Grok Voice Agent WebSocket       |
-| `examples/gemini-realtime`       | `cloud/gemini-realtime` | Gemini Live API WebSocket            |
+| Folder                              | Branch source           | Stack                                |
+| ----------------------------------- | ----------------------- | ------------------------------------ |
+| `examples/openai-realtime`          | —                       | OpenAI Realtime API WebSocket        |
+| `examples/alibaba-qwen-realtime`    | `cloud/qwen-realtime`   | Alibaba DashScope Qwen Omni Realtime |
+| `examples/xai-realtime`             | `cloud/xai-realtime`    | xAI Grok Voice Agent WebSocket       |
+| `examples/gemini-realtime`          | `cloud/gemini-realtime` | Gemini Live API WebSocket            |
+| `examples/bytedance-seeduplex-realtime` | Dev Qwen template   | ByteDance Seeduplex 3.0 duplex JSON  |
 
 ## Refreshing an example from a branch
 
