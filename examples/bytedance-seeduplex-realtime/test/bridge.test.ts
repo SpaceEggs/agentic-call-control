@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createSeeduplexRealtimeBridge } from '../src/providers/seeduplex-realtime.ts';
 import type { SeeduplexRealtimeConfig } from '../src/providers/seeduplex-realtime.ts';
 import { EVENT } from '../src/providers/seeduplex-protocol.ts';
+import type { CallLogger } from '@3cx-examples/logger';
 
 interface FakeWriter {
     cancelled: boolean;
@@ -95,6 +96,26 @@ function baseConfig(overrides: Partial<SeeduplexRealtimeConfig> = {}): Seeduplex
         speakOnRouteFailure: false,
         routeFailureUserReply: '',
         ...overrides,
+    };
+}
+
+function transcriptLogger(entries: Array<{ role: string; text: string }>): CallLogger {
+    return {
+        callId: 1,
+        callStart() { },
+        callEnd() { },
+        systemPrompt() { },
+        transcript(role, text) { entries.push({ role, text }); },
+        speechEvent() { },
+        responseCreated() { },
+        responseDone() { },
+        ruleInjected() { },
+        toolCalled() { },
+        toolResult() { },
+        info() { },
+        warn() { },
+        error() { },
+        close() { },
     };
 }
 
@@ -244,6 +265,36 @@ test('uplink audio is packetized into official 20 ms / 640-byte PCM frames', asy
     const audio = mock.received.find((message) => message.type === EVENT.inputAudioAppend)?.audio;
     assert.equal(typeof audio, 'string');
     assert.equal(Buffer.from(audio as string, 'base64').length, 640);
+
+    bridge.stop();
+    await mock.close();
+});
+
+test('official ASR/output-text deltas are retained when done events omit text', async () => {
+    const mock = await startMockServer();
+    const fake = createFakeParticipant();
+    const transcripts: Array<{ role: string; text: string }> = [];
+    const bridge = createSeeduplexRealtimeBridge(
+        fake.participant,
+        baseConfig({ wsUrl: mock.url, fileLog: transcriptLogger(transcripts) }),
+        async () => ({ content: 'ok' }),
+    );
+
+    await waitUntil(() => mock.received.length >= 1);
+    mock.send({ type: EVENT.sessionCreated, session: { id: 'dialog-1' } });
+    await waitUntil(() => bridge.getPhase() === 'ready');
+    mock.send({ type: EVENT.inputAudioTranscriptionStarted });
+    mock.send({ type: EVENT.inputAudioTranscriptionDelta, delta: '你' });
+    mock.send({ type: EVENT.inputAudioTranscriptionDelta, delta: '好' });
+    mock.send({ type: EVENT.inputAudioTranscriptionCompleted, transcript: '' });
+    mock.send({ type: EVENT.outputTextDelta, delta: '您好' });
+    mock.send({ type: EVENT.outputTextDone, text: '' });
+
+    await waitUntil(() => transcripts.length === 2);
+    assert.deepEqual(transcripts, [
+        { role: 'caller', text: '你好' },
+        { role: 'agent', text: '您好' },
+    ]);
 
     bridge.stop();
     await mock.close();

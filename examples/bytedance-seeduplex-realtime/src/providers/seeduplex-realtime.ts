@@ -150,6 +150,7 @@ export function createSeeduplexRealtimeBridge(
     const uplinkPacketizer = new PcmFramePacketizer(UPLINK_FRAME_BYTES);
 
     let agentTranscriptBuf = '';
+    let callerTranscriptBuf = '';
     const audioWriter = participant.getAudioWriter();
 
     const normalizedTools = normalizeToolDefinitions(
@@ -333,6 +334,7 @@ export function createSeeduplexRealtimeBridge(
         cancelledResponseId = currentResponseId;
         downsampler.reset();
         agentTranscriptBuf = '';
+        callerTranscriptBuf = '';
 
         try {
             // Clear local playback buffer; writer stays writable for the next reply.
@@ -417,20 +419,29 @@ export function createSeeduplexRealtimeBridge(
 
             case 'response.output_audio_transcript.delta':
             case 'response.audio_transcript.delta':
+            case EVENT.outputTextDelta:
                 agentTranscriptBuf += (typeof event.delta === 'string' ? event.delta : '');
                 break;
 
             case 'response.output_audio_transcript.done':
             case 'response.audio_transcript.done':
-                if (agentTranscriptBuf) {
-                    log.transcript('agent', agentTranscriptBuf.trim());
-                    console.log(chalk.blueBright(`[Agent] "${agentTranscriptBuf.trim()}"`));
-                    agentTranscriptBuf = '';
+            case EVENT.outputTextDone: {
+                const transcript = (
+                    typeof event.text === 'string' && event.text.trim()
+                        ? event.text
+                        : agentTranscriptBuf
+                ).trim();
+                if (transcript) {
+                    log.transcript('agent', transcript);
+                    console.log(chalk.blueBright(`[Agent] "${transcript}"`));
                 }
+                agentTranscriptBuf = '';
                 break;
+            }
 
             case EVENT.inputAudioTranscriptionStarted: {
                 log.speechEvent('CALLER_SPEECH_START');
+                callerTranscriptBuf = '';
                 // Barge-in must not wait for tools. Playback stops immediately;
                 // in-flight tool execution continues independently.
                 const suppressedForTools = toolCallStreaming;
@@ -442,10 +453,21 @@ export function createSeeduplexRealtimeBridge(
                 break;
             }
 
+            case EVENT.inputAudioTranscriptionDelta:
+                callerTranscriptBuf += typeof event.delta === 'string' ? event.delta : '';
+                break;
+
             case EVENT.inputAudioTranscriptionCompleted: {
-                const transcript = (typeof event.transcript === 'string' ? event.transcript : '').trim();
-                log.transcript('caller', transcript);
-                console.log(chalk.yellowBright(`[User] "${transcript}"`));
+                const transcript = (
+                    typeof event.transcript === 'string' && event.transcript.trim()
+                        ? event.transcript
+                        : callerTranscriptBuf
+                ).trim();
+                if (transcript) {
+                    log.transcript('caller', transcript);
+                    console.log(chalk.yellowBright(`[User] "${transcript}"`));
+                }
+                callerTranscriptBuf = '';
                 break;
             }
 

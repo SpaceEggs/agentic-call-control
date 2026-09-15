@@ -75,3 +75,26 @@ call batching/deduplication/name restoration, barge-in recovery, routing locks,
 and idempotent cleanup. They do not prove account entitlement, WAN behavior,
 model quality, or PBX media behavior. Those require the live checklist in the
 example README.
+
+## Live API smoke verification (2026-09-15)
+
+Using an API key supplied out-of-band to the process through non-echoing stdin
+(never written to a file, config, Git object, or log), the official endpoint
+completed these checks with model `1.2.6.0`:
+
+- `X-Api-Key` only: `session.created`, greeting audio, `response.done`, and
+  `session.closed` all received; 113,376 decoded PCM bytes were returned.
+- `X-Api-Key` plus a synthetic `X-Api-App-Id`: the same lifecycle completed;
+  125,034 decoded PCM bytes were returned. This confirms the issue-required
+  extra header does not prevent authentication.
+- Official `whoareyou.wav` (16 kHz mono PCM, SHA-256
+  `f349a9546fb020be250370cbe16b674ee0bc51e8965e1b5979d5b2c123efd985`):
+  ASR started/delta/completed, `response.function_call_arguments.done`, batched
+  tool-result upload, continued text/audio response, `response.done`, and
+  `session.closed` all completed. The post-tool response contained 201,786
+  decoded PCM bytes.
+
+The live event trace also showed that completed ASR text can be empty while its
+delta events contain the transcript. The bridge therefore accumulates official
+ASR deltas and `response.output_text.*` events, with completed text taking
+precedence when present.
