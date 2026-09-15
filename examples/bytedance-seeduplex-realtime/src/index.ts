@@ -4,6 +4,7 @@ import { createCallStore } from './callcontrol/call-store.ts';
 import { filterMcpTools, McpManager, connectCustomMcpServers } from '@3cx-examples/mcp';
 import type { CustomMcpRouter } from '@3cx-examples/mcp';
 import { loadAppConfig, CONFIG_PATH } from './app-config.ts';
+import type { AppConfig } from './app-config.ts';
 import { loadAgentProfile } from './agent/agent-profiles.ts';
 import type { AgentProfile } from './agent/agent-profiles.ts';
 
@@ -65,7 +66,15 @@ async function main() {
         mcpToolDefs = [];
     }
 
-    const customMcpRouter: CustomMcpRouter | undefined = await connectCustomMcpServers(
+    // Deployed examples may share an older MCP package whose public signature
+    // predates the optional configPath argument. JavaScript safely ignores the
+    // extra argument; this compatibility type keeps both package versions valid.
+    const connectCustomMcpServersCompat = connectCustomMcpServers as unknown as (
+        configs: AppConfig['customMcpServers'],
+        allowedTools: string[] | 'all' | undefined,
+        options?: { configPath: string },
+    ) => Promise<CustomMcpRouter | undefined>;
+    const customMcpRouter: CustomMcpRouter | undefined = await connectCustomMcpServersCompat(
         appconfig.customMcpServers,
         profile?.mcpTools,
         { configPath: CONFIG_PATH },
