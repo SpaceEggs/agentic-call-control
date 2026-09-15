@@ -7,7 +7,8 @@ pbxBase: https://your-pbx.3cx.eu:5001
 # Obtain APP ID and API Key from the Volcengine Doubao speech console.
 # 3.0 duplex access may require invitation / enablement. 403 must not be
 # "fixed" by falling back to the 1.0 binary endpoint.
-volcAppId: your-volcengine-app-id
+# Optional compatibility header; the official 3.0 demo requires only API Key.
+# volcAppId: your-volcengine-app-id
 volcApiKey: your-volcengine-api-key
 
 # Model is a version string, not a free-form alias. Default: 1.2.6.0

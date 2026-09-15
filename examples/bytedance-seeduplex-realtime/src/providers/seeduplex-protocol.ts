@@ -44,11 +44,10 @@ export type SeeduplexAuthHeaders = Record<string, string>;
  * The official 2026-08 demo requires X-Api-Key. Issue #2 additionally requires
  * X-Api-App-Id, so it is retained for compatibility with provisioned accounts.
  */
-export function buildAuthHeaders(apiKey: string, appId: string): SeeduplexAuthHeaders {
-    return {
-        [AUTH_HEADER_API_KEY]: apiKey,
-        [AUTH_HEADER_APP_ID]: appId,
-    };
+export function buildAuthHeaders(apiKey: string, appId?: string): SeeduplexAuthHeaders {
+    const headers: SeeduplexAuthHeaders = { [AUTH_HEADER_API_KEY]: apiKey };
+    if (appId?.trim()) headers[AUTH_HEADER_APP_ID] = appId.trim();
+    return headers;
 }
 
 export interface SeeduplexToolWire {

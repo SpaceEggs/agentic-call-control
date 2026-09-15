@@ -54,10 +54,10 @@ covered by `test/protocol.test.ts` and `test/bridge.test.ts`.
 1. Issue #2 describes `session.tools` as an event. The official contract defines
    `tools` as an array inside `session.create` or `session.update`; the
    implementation follows the official contract.
-2. Issue #2 requires both `X-Api-Key` and `X-Api-App-Id`. The official demos only
-   require `X-Api-Key` (or Bearer). The implementation retains `X-Api-App-Id`
-   because it is an explicit issue/config requirement and sends `X-Api-Key` in
-   the official form.
+2. Issue #2 requires both `X-Api-Key` and `X-Api-App-Id`. The official demos and
+   live verification require only `X-Api-Key` (or Bearer). The implementation
+   always sends `X-Api-Key` and sends `X-Api-App-Id` only when `volcAppId` is
+   configured, avoiding substitution of the unrelated 3CX `appId`.
 3. Issue #2 fixes model `1.2.6.0`; the 2026-08 official demos use `1.2.6.1`.
    The example keeps `1.2.6.0` as its default to meet the issue contract, while
    allowing `realtimeModel` to be overridden for the version enabled on an account.

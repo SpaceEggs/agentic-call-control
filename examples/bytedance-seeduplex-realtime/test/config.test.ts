@@ -26,25 +26,23 @@ test('T01 valid config passes', () => {
     validateConfig(baseConfig());
 });
 
-test('T01 missing volc fields lists names only, no secrets', () => {
+test('T01 missing required Volcengine API key lists its name only', () => {
     const cfg = baseConfig();
-    // @ts-expect-error intentional empty
-    cfg.volcAppId = '';
     cfg.volcApiKey = '   ';
     try {
         validateConfig(cfg);
         assert.fail('expected throw');
     } catch (err) {
         const msg = (err as Error).message;
-        assert.ok(msg.includes('volcAppId'));
         assert.ok(msg.includes('volcApiKey'));
         assert.ok(!msg.includes('secret'));
         assert.ok(!msg.includes('volc-key'));
     }
 });
 
-test('T01 appId and volcAppId are independent fields', () => {
+test('T01 3CX appId is still required when optional volcAppId is absent', () => {
     const cfg = baseConfig();
+    delete cfg.volcAppId;
     // @ts-expect-error intentional empty
     cfg.appId = '';
     try {

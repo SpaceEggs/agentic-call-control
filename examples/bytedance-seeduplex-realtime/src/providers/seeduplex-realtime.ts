@@ -53,7 +53,7 @@ export type RouteState = 'idle' | 'in_progress' | 'terminated';
 
 export interface SeeduplexRealtimeConfig {
     volcApiKey: string;
-    volcAppId: string;
+    volcAppId?: string;
     model: string;
     voice: string;
     instructions: string;

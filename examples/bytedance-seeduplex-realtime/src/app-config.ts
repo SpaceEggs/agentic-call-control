@@ -6,7 +6,7 @@ export interface AppConfig {
   appSecret: string;
   pbxBase: string;
   /** Volcengine / Doubao speech APP ID (Seeduplex). Distinct from 3CX appId. */
-  volcAppId: string;
+  volcAppId?: string;
   /** Volcengine API Key for Seeduplex WebSocket auth (X-Api-Key). */
   volcApiKey: string;
   agentProfile?: string;
@@ -60,7 +60,6 @@ export function validateConfig(cfg: AppConfig): void {
     requireNonEmpty(cfg.appId, 'appId', missing);
     requireNonEmpty(cfg.appSecret, 'appSecret', missing);
     requireNonEmpty(cfg.pbxBase, 'pbxBase', missing);
-    requireNonEmpty(cfg.volcAppId, 'volcAppId', missing);
     requireNonEmpty(cfg.volcApiKey, 'volcApiKey', missing);
     if (missing.length > 0) {
         throw new Error(`Missing required config fields: ${missing.join(', ')}`);
@@ -75,7 +74,7 @@ export function loadAppConfig(path: string = CONFIG_PATH): AppConfig {
         appId: asString(loaded.appId) ?? '',
         appSecret: asString(loaded.appSecret) ?? '',
         pbxBase: asString(loaded.pbxBase) ?? '',
-        volcAppId: asString(loaded.volcAppId) ?? '',
+        volcAppId: asString(loaded.volcAppId),
         volcApiKey: asString(loaded.volcApiKey) ?? '',
         agentProfile: asString(loaded.agentProfile),
         agentInstructions: asString(loaded.agentInstructions),

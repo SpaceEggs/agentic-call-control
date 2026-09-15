@@ -30,6 +30,7 @@ test('auth follows Issue #2 while retaining the official X-Api-Key header', () =
     assert.equal(headers[AUTH_HEADER_API_KEY], 'key-1');
     assert.equal(headers[AUTH_HEADER_APP_ID], 'app-1');
     assert.equal(headers.Authorization, undefined);
+    assert.deepEqual(buildAuthHeaders('key-only'), { [AUTH_HEADER_API_KEY]: 'key-only' });
 });
 
 test('session.create matches the official 2026-08 demo layout', () => {

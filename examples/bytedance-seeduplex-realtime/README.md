@@ -22,7 +22,8 @@ An AI voice agent that connects to a **3CX PBX** via the CallControl SDK and use
 ### Volcengine / Doubao speech credentials
 
 1. Open the Volcengine Doubao speech console
-2. Create or select an app; copy **APP ID** → `volcAppId` and **API Key** → `volcApiKey`
+2. Create or select an app and copy its **API Key** → `volcApiKey`. `volcAppId`
+   is an optional compatibility header; the official 3.0 demo authenticates with the key alone.
 3. Seeduplex **3.0 duplex** access may require invitation / enablement
 4. **403 / permission denied means enable 3.0 access** — switching to a 1.0 endpoint is not a valid workaround
 
@@ -45,7 +46,6 @@ appId: your-3cx-app-id
 appSecret: your-3cx-app-secret
 pbxBase: https://your-pbx.3cx.eu:5001
 
-volcAppId: your-volcengine-app-id
 volcApiKey: your-volcengine-api-key
 realtimeModel: "1.2.6.0"
 realtimeVoice: zh_female_vv_jupiter_bigtts
@@ -70,7 +70,8 @@ yarn start:bytedance-seeduplex
 | Field | Required | Notes |
 | --- | --- | --- |
 | `appId` / `appSecret` / `pbxBase` | yes | 3CX service principal |
-| `volcAppId` / `volcApiKey` | yes | Volcengine Seeduplex credentials |
+| `volcApiKey` | yes | Volcengine Seeduplex API key |
+| `volcAppId` | no | Optional compatibility header for accounts that require it |
 | `realtimeModel` | no | Version string, default `1.2.6.0` |
 | `realtimeVoice` | no | Fallback voice; profile `voice` wins |
 | `agentProfile` | recommended | `receptionist_cn` or `receptionist_en` |
@@ -141,7 +142,7 @@ Mock tests do not prove account entitlement, WAN behavior, or real PBX media.
 
 | Symptom | Likely cause |
 | --- | --- |
-| Missing config fields error | Fill `volcAppId` / `volcApiKey` / 3CX credentials |
+| Missing config fields error | Fill `volcApiKey` and the 3CX credentials |
 | WebSocket 401/403 | Wrong key or no 3.0 duplex permission — do not switch to 1.0 |
 | No greeting / no audio | Session never reached ready (check session.create ack logs) |
 | Tool not called | Name not in profile `mcpTools` or collision rejected |

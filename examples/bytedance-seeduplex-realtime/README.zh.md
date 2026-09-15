@@ -22,7 +22,8 @@
 ### 火山引擎 / 豆包语音凭据
 
 1. 打开火山引擎豆包语音控制台
-2. 创建或选择应用，复制 **APP ID** → `volcAppId`，**API Key** → `volcApiKey`
+2. 创建或选择应用，将 **API Key** 填入 `volcApiKey`。`volcAppId` 是可选兼容头，
+   官方 3.0 demo 仅使用 API Key 即可认证
 3. Seeduplex **3.0 duplex** 可能需要邀请或开通
 4. **403/权限不足表示需要开通 3.0**，不能通过切换到 1.0 端点规避
 
@@ -103,7 +104,7 @@ Mock 测试不能证明账号权限、广域网表现或真实 PBX 媒体行为�
 
 | 现象 | 可能原因 |
 | --- | --- |
-| 启动提示缺失字段 | 补齐 `volcAppId` / `volcApiKey` / 3CX 凭据 |
+| 启动提示缺失字段 | 补齐 `volcApiKey` 与 3CX 凭据 |
 | WebSocket 401/403 | 密钥错误或未开通 3.0 duplex — 不要改用 1.0 |
 | 无问候/无音频 | 会话未进入 ready（检查 session.create ack 日志） |
 | 工具未调用 | 未列入 profile `mcpTools`，或名称冲突被拒绝 |
