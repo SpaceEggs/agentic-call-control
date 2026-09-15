@@ -2,7 +2,7 @@
 
 This repository shows how to connect **external AI voice agent applications** to **3CX PBX** using the [CallControl API](https://www.3cx.com/docs/call-control-api-endpoints/) and the [CallControl SDK](https://github.com/3cx/call-control-sdk-ts). The agents run entirely outside 3CX — on your own infrastructure, using your own AI provider — and interact with the PBX purely through its API: joining calls, streaming audio in/out, and controlling routing (transfer, voicemail, drop) through tool calls. No 3CX source code or modifications required.
 
-All examples use a **single realtime audio stream** (OpenAI Realtime, Gemini Live, xAI Grok, Alibaba Qwen) — STT, reasoning, and TTS happen inside one continuous bidirectional audio stream with no handoff between stages.
+All examples use a **single realtime audio stream** (OpenAI Realtime, Gemini Live, xAI Grok, Alibaba Qwen, ByteDance Seeduplex) — STT, reasoning, and TTS happen inside one continuous bidirectional audio stream with no handoff between stages.
 
 All examples support the **3CX MCP server** for phonebook lookups and contact management.
 
@@ -79,6 +79,7 @@ yarn install
    - [Alibaba Qwen realtime](./examples/alibaba-qwen-realtime/README.md) — DashScope Qwen Omni Realtime
    - [xAI Grok realtime](./examples/xai-realtime/README.md) — xAI Grok Voice Agent
    - [Gemini Live realtime](./examples/gemini-realtime/README.md) — Gemini Live API
+   - [ByteDance Seeduplex realtime](./examples/bytedance-seeduplex-realtime/README.md) — Seeduplex 3.0 duplex (text JSON)
 
 3. When ready, start from the repo root:
 
@@ -87,6 +88,7 @@ yarn start:openai            # OpenAI Realtime API
 yarn start:alibaba-qwen      # Alibaba Qwen Omni Realtime
 yarn start:xai               # xAI Grok Voice Agent
 yarn start:gemini            # Gemini Live realtime
+yarn start:bytedance-seeduplex  # ByteDance Seeduplex 3.0 duplex
 ```
 
 ## License

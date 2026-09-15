@@ -6,9 +6,11 @@
  * - `default` / `openai` / `xai` — OpenAI-compatible (Realtime, Chat Completions, OpenRouter, …)
  * - `gemini` — Gemini Live (strict Schema proto; rejects many JSON Schema keywords)
  * - `qwen` — DashScope Qwen Omni Realtime (weak type parser; prefers strings, no defaults)
+ * - `seeduplex` — ByteDance Seeduplex 3.0 duplex (initial design aliases OpenAI profile;
+ *   keeps numeric/boolean types, does not apply Qwen scalar-to-string rules)
  */
 
-export type ToolSchemaProvider = 'default' | 'openai' | 'xai' | 'gemini' | 'qwen';
+export type ToolSchemaProvider = 'default' | 'openai' | 'xai' | 'gemini' | 'qwen' | 'seeduplex';
 
 /**
  * Provider schemas are allowlists, not blacklists. Unknown JSON Schema
@@ -113,6 +115,15 @@ function profileFor(provider: ToolSchemaProvider): NormalizeProfile {
             nullableMode: 'strip-null',
             // Qwen Realtime accepts namespaced MCP names with dots.
             sanitizeToolNames: false,
+        };
+    case 'seeduplex':
+        // Initial design: reuse the OpenAI profile. Tighten only with demo evidence.
+        return {
+            allowedKeys: OPENAI_SCHEMA_KEYS,
+            dropAllDefaults: false,
+            relaxScalars: false,
+            nullableMode: 'preserve',
+            sanitizeToolNames: true,
         };
     case 'openai':
         return {
