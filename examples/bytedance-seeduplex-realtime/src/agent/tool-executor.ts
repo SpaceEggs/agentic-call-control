@@ -49,15 +49,20 @@ const handleTransferCall: ToolHandler = async (args, deps) => {
         return { content: `Transfer to ${destination} is not allowed.` };
     }
 
-    if (deps.profile.callScreening && !isScreeningReady(deps.callState.screening)) {
-        const missing = missingScreeningFields(deps.callState.screening);
-        console.log(chalk.yellow(`[ToolExec] transfer blocked — missing: ${missing.join(', ')}`));
-        return { content: `Before transferring, ask the caller for: ${missing.join(', ')}.` };
-    }
-
     const blocked = blockRouteIfAvailabilityUnknown(deps, destination, 'transfer');
     if (blocked) return blocked;
 
+    if (deps.profile.callScreening && !isScreeningReady(deps.callState.screening)) {
+        const missing = missingScreeningFields(deps.callState.screening);
+        deps.callState.pendingScreenedRoute = { action: 'transfer', destination };
+        console.log(chalk.yellow(`[ToolExec] transfer blocked — missing: ${missing.join(', ')}`));
+        return {
+            content: `Before transferring, ask the caller for: ${missing.join(', ')}. `
+                + `The transfer request to ${destination} is saved and will resume automatically once screening is complete.`,
+        };
+    }
+
+    deps.callState.pendingScreenedRoute = undefined;
     if (deps.profile.callScreening) await submitScreening(deps.participant, deps.callState);
     console.log(chalk.magentaBright(`[ToolExec] transfer_call → ${destination}`));
     return { content: `Transfer to ${destination} initiated.`, action: 'transfer', destination };
@@ -84,15 +89,20 @@ const handleTransferToVoicemail: ToolHandler = async (args, deps) => {
         return { content: `Transfer to voicemail of ${destination} is not allowed.` };
     }
 
-    if (deps.profile.callScreening && !isScreeningReady(deps.callState.screening)) {
-        const missing = missingScreeningFields(deps.callState.screening);
-        console.log(chalk.yellow(`[ToolExec] voicemail blocked — missing: ${missing.join(', ')}`));
-        return { content: `Before sending to voicemail, ask the caller for: ${missing.join(', ')}.` };
-    }
-
     const blocked = blockRouteIfAvailabilityUnknown(deps, destination, 'voicemail');
     if (blocked) return blocked;
 
+    if (deps.profile.callScreening && !isScreeningReady(deps.callState.screening)) {
+        const missing = missingScreeningFields(deps.callState.screening);
+        deps.callState.pendingScreenedRoute = { action: 'transfer_voicemail', destination };
+        console.log(chalk.yellow(`[ToolExec] voicemail blocked — missing: ${missing.join(', ')}`));
+        return {
+            content: `Before sending to voicemail, ask the caller for: ${missing.join(', ')}. `
+                + `The voicemail request for ${destination} is saved and will resume automatically once screening is complete.`,
+        };
+    }
+
+    deps.callState.pendingScreenedRoute = undefined;
     if (deps.profile.callScreening) await submitScreening(deps.participant, deps.callState);
     console.log(chalk.magentaBright(`[ToolExec] transfer_to_voicemail → ${destination}`));
     return { content: `Sending to voicemail of ${destination}.`, action: 'transfer_voicemail', destination };
@@ -109,6 +119,41 @@ function screeningStatus(s: CallState['screening']): string {
     return `Saved so far: ${saved}. Still need: ${missing.join(', ')}.`;
 }
 
+async function screeningResult(prefix: string, deps: ToolDeps): Promise<ToolResult> {
+    const status = screeningStatus(deps.callState.screening);
+    const pending = deps.callState.pendingScreenedRoute;
+    if (!pending || !isScreeningReady(deps.callState.screening)) {
+        return { content: `${prefix}. ${status}` };
+    }
+
+    // Consume before awaiting so repeated/parallel save calls cannot resume the
+    // same route twice. The bridge also applies a terminal route lock.
+    deps.callState.pendingScreenedRoute = undefined;
+
+    const routeBlocked = blockIfRouteNotTransferable(
+        deps,
+        pending.action === 'transfer' ? 'transfer' : 'voicemail',
+    );
+    if (routeBlocked) return { content: `${prefix}. ${routeBlocked.content}` };
+    if (!isExtensionAllowed(pending.destination, deps.profile)) {
+        return { content: `${prefix}. Transfer to ${pending.destination} is not allowed.` };
+    }
+    const availabilityBlocked = blockRouteIfAvailabilityUnknown(
+        deps,
+        pending.destination,
+        pending.action === 'transfer' ? 'transfer' : 'voicemail',
+    );
+    if (availabilityBlocked) return { content: `${prefix}. ${availabilityBlocked.content}` };
+
+    await submitScreening(deps.participant, deps.callState);
+    const label = pending.action === 'transfer' ? 'Transfer' : 'Voicemail transfer';
+    return {
+        content: `${prefix}. ${status} ${label} to ${pending.destination} initiated.`,
+        action: pending.action,
+        destination: pending.destination,
+    };
+}
+
 const handleSaveCallerName: ToolHandler = async (args, deps) => {
     const routeBlocked = blockIfRouteNotTransferable(deps, 'screening');
     if (routeBlocked) return routeBlocked;
@@ -117,7 +162,7 @@ const handleSaveCallerName: ToolHandler = async (args, deps) => {
     if (!name) return { content: 'No name provided.' };
     deps.callState.screening.name = name;
     console.log(chalk.cyan(`[ToolExec] screening.name = "${name}"`));
-    return { content: `Caller name saved: ${name}. ${screeningStatus(deps.callState.screening)}` };
+    return screeningResult(`Caller name saved: ${name}`, deps);
 };
 
 const handleSaveCallerCompany: ToolHandler = async (args, deps) => {
@@ -128,7 +173,7 @@ const handleSaveCallerCompany: ToolHandler = async (args, deps) => {
     if (!company) return { content: 'No company provided.' };
     deps.callState.screening.company = company;
     console.log(chalk.cyan(`[ToolExec] screening.company = "${company}"`));
-    return { content: `Company saved: ${company}. ${screeningStatus(deps.callState.screening)}` };
+    return screeningResult(`Company saved: ${company}`, deps);
 };
 
 const handleSaveCallerReason: ToolHandler = async (args, deps) => {
@@ -139,7 +184,7 @@ const handleSaveCallerReason: ToolHandler = async (args, deps) => {
     if (!reason) return { content: 'No reason provided.' };
     deps.callState.screening.reason = reason;
     console.log(chalk.cyan(`[ToolExec] screening.reason = "${reason}"`));
-    return { content: `Reason saved: ${reason}. ${screeningStatus(deps.callState.screening)}` };
+    return screeningResult(`Reason saved: ${reason}`, deps);
 };
 
 function blockIfRouteNotTransferable(deps: ToolDeps, action: string): ToolResult | null {

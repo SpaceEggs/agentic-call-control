@@ -10,6 +10,11 @@ export interface CallScreening {
     tone?: string;
 }
 
+export interface PendingScreenedRoute {
+    action: 'transfer' | 'transfer_voicemail';
+    destination: string;
+}
+
 export interface PhonebookContact {
     extensionNumber: string;
     displayName: string;
@@ -20,6 +25,8 @@ export interface CallState {
     callerInfo: CallerInfo;
     screening: CallScreening;
     pendingRoute?: PhonebookContact;
+    /** Explicit route request paused until mandatory call screening is complete. */
+    pendingScreenedRoute?: PendingScreenedRoute;
 }
 
 export function createCallState(callerName: string, callerNumber: string): CallState {
