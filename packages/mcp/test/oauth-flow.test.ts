@@ -302,6 +302,32 @@ test('invalid refresh token skips only that server and does not read stdin', asy
     }
 });
 
+test('authorization_code without configPath resolves against cwd config.yaml', async () => {
+    const logs: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+    try {
+        const router = await connectCustomMcpServers([
+            {
+                name: 'GoogleCalendar',
+                url: 'http://127.0.0.1:9/mcp',
+                auth: {
+                    type: 'oauth',
+                    grant: 'authorization_code',
+                    clientId: 'cid',
+                    clientSecret: 'csecret',
+                    tokenStore: '.mcp-tokens/missing-default-config-path.json',
+                },
+            },
+        ], 'all');
+        assert.equal(router, undefined);
+        assert.ok(logs.every((l) => !l.includes('configPath is required')));
+        assert.ok(logs.some((l) => l.includes(`yarn mcp:auth --config ${resolve(process.cwd(), 'config.yaml')}`)));
+    } finally {
+        console.warn = origWarn;
+    }
+});
+
 test('authorization_code callTool unauthorized returns promptly', async () => {
     let rejectBearer = false;
     const fixture = await startOAuthMcpFixture({

@@ -38,8 +38,16 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      # Upstream examples are kept identical to master and are not linted here.
       - name: Lint
-        run: yarn lint
+        run: >-
+          yarn workspaces foreach -A
+          --exclude agentic-call-control
+          --exclude @3cx-examples/openai-realtime
+          --exclude @3cx-examples/gemini-realtime
+          --exclude @3cx-examples/xai-realtime
+          --exclude @3cx-examples/alibaba-qwen-realtime
+          run lint
 
       - name: Build
         run: yarn build

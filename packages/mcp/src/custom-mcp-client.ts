@@ -15,6 +15,7 @@ import { ClientCredentialsProvider } from '@modelcontextprotocol/sdk/client/auth
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { OAuthError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import chalk from 'chalk';
+import { resolve } from 'node:path';
 import type { McpToolDefinition } from './mcp-client.ts';
 import { coerceToolArguments } from './tool-schema.ts';
 import {
@@ -35,7 +36,10 @@ export interface CustomMcpToolDef {
 }
 
 export interface ConnectCustomMcpOptions {
-    /** Absolute or process-resolved path of the example config.yaml. Required for authorization_code token stores. */
+    /**
+     * Absolute or process-resolved path of the example config.yaml, used to resolve
+     * authorization_code token stores. Defaults to `config.yaml` in the current working directory.
+     */
     configPath: string;
 }
 
@@ -373,7 +377,7 @@ export async function connectCustomMcpServers(
     allowlist?: string[] | 'all',
     options?: ConnectCustomMcpOptions,
 ): Promise<CustomMcpRouter | undefined> {
-    const configPath = options?.configPath ?? '';
+    const configPath = options?.configPath ?? resolve(process.cwd(), 'config.yaml');
     const loaded = loadCustomMcpServers(configs, configPath);
     for (const err of loaded.skipped) {
         console.warn(chalk.yellow(err.message));

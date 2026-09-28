@@ -1,5 +1,3 @@
-import type { CustomMcpServerConfig } from '@3cx-examples/mcp';
-
 export interface AppConfig {
   appId: string;
   appSecret: string;
@@ -23,7 +21,7 @@ export interface AppConfig {
    * Optional extra MCP servers (in addition to 3CX `{pbxBase}/mcp`).
    * See `@3cx-examples/mcp`. Omit or leave empty to use only 3CX MCP.
    */
-  customMcpServers?: CustomMcpServerConfig[];
+  customMcpServers?: import('@3cx-examples/mcp').CustomMcpServerConfig[];
 }
 
 import { readFileSync } from 'fs';
@@ -32,11 +30,14 @@ import { load } from 'js-yaml';
 
 const DASHSCOPE_DEFAULT_BASE = 'https://dashscope-intl.aliyuncs.com';
 
-export const CONFIG_PATH = resolve(process.cwd(), 'config.yaml');
-
 function loadConfig(): AppConfig {
-    const raw = readFileSync(CONFIG_PATH, 'utf-8');
+    const configPath = resolve(process.cwd(), 'config.yaml');
+    const raw = readFileSync(configPath, 'utf-8');
     const cfg = load(raw) as AppConfig;
+    // YAML may parse numeric Client IDs as numbers; SDK compares DN with strict ===.
+    if (cfg.appId != null && typeof cfg.appId !== 'string') {
+        cfg.appId = String(cfg.appId);
+    }
     cfg.dashscopeBaseUrl ??= DASHSCOPE_DEFAULT_BASE;
     return cfg;
 }
